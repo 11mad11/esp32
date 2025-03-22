@@ -163,10 +163,10 @@ pub fn message_handler(
 ) -> impl Fn(Message) -> Result<(), ClientError> {
     let one = Char::digit(1).unwrap();
     let pins = RefCell::new((
-        Output::new(pins.0, esp_hal::gpio::Level::High, Default::default()),
-        Output::new(pins.1, esp_hal::gpio::Level::High, Default::default()),
-        Output::new(pins.2, esp_hal::gpio::Level::High, Default::default()),
-        Output::new(pins.3, esp_hal::gpio::Level::High, Default::default()),
+        Output::new(pins.0, esp_hal::gpio::Level::High),
+        Output::new(pins.1, esp_hal::gpio::Level::High),
+        Output::new(pins.2, esp_hal::gpio::Level::High),
+        Output::new(pins.3, esp_hal::gpio::Level::High),
     ));
 
     move |msg: Message| -> Result<(), ClientError> {

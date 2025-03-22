@@ -15,7 +15,7 @@ static LED: Channel<CriticalSectionRawMutex, LedState, 10> = Channel::new();
 
 #[embassy_executor::task]
 pub async fn task(led: AnyPin) {
-    let mut led = Output::new(led, esp_hal::gpio::Level::Low, Default::default());
+    let mut led = Output::new(led, esp_hal::gpio::Level::Low);
 
     loop {
         led.set_low();

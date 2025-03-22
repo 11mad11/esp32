@@ -12,11 +12,11 @@ use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use esp_hal::gpio::Pin;
-use esp_hal::{peripherals, spi};
-use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
+use esp_hal::{peripherals, spi};
 use ethernet::ethernet_task;
+use fugit::HertzU32;
 //use memory::MEM;
 use mqtt::mqtt_task;
 use tcp::tcp_task;
@@ -73,7 +73,7 @@ async fn main(spawner: Spawner) {
 
     let stack = {
         let mut spi_cfg = spi::master::Config::default();
-        spi_cfg = spi_cfg.with_frequency(Rate::from_hz(1_000_000));
+        spi_cfg = spi_cfg.with_frequency(HertzU32::Hz(1000000));
         let mut spi = spi::master::Spi::new(peripherals.SPI3, spi_cfg).unwrap();
         spi = spi
             .with_miso(peripherals.GPIO19)
@@ -107,12 +107,17 @@ async fn main(spawner: Spawner) {
     led::state(led::LedState::Ok);
 
     spawner.spawn(tcp_task(stack.clone())).unwrap();
-    spawner.spawn(mqtt_task(stack.clone(),(
-        peripherals.GPIO14.degrade(),
-        peripherals.GPIO16.degrade(),
-        peripherals.GPIO17.degrade(),
-        peripherals.GPIO27.degrade(),
-    ))).unwrap();
+    spawner
+        .spawn(mqtt_task(
+            stack.clone(),
+            (
+                peripherals.GPIO14.degrade(),
+                peripherals.GPIO16.degrade(),
+                peripherals.GPIO17.degrade(),
+                peripherals.GPIO27.degrade(),
+            ),
+        ))
+        .unwrap();
 
     loop {
         Timer::after_secs(2).await;

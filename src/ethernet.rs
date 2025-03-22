@@ -11,10 +11,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use esp_hal::gpio::GpioPin;
 use esp_hal::gpio::Input;
-use esp_hal::gpio::InputConfig;
 use esp_hal::gpio::NoPin;
 use esp_hal::gpio::Output;
-use esp_hal::gpio::OutputConfig;
 use esp_hal::rng::Rng;
 use esp_hal::spi::master::Spi;
 use esp_hal::Async;
@@ -49,9 +47,9 @@ pub async fn ethernet_task(
             BUS.init(Mutex::<CriticalSectionRawMutex, Spi<'static, Async>>::new(
                 spi_dev,
             )),
-            Output::new(cs, esp_hal::gpio::Level::High, OutputConfig::default()),
+            Output::new(cs, esp_hal::gpio::Level::High),
         ),
-        Input::new(int, InputConfig::default()),
+        Input::new(int, esp_hal::gpio::Pull::None),
         NoPin,
     )
     .await
