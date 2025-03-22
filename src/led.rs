@@ -8,7 +8,7 @@ pub enum LedState {
     Ok,
     TCP(bool),
     MQTT(bool),
-    RPCError
+    RPCError,
 }
 
 static LED: Channel<CriticalSectionRawMutex, LedState, 10> = Channel::new();
@@ -24,17 +24,44 @@ pub async fn task(led: AnyPin) {
         match state {
             LedState::Ok => {
                 led.set_high();
+                Timer::after_millis(50).await;
+                led.set_low();
+                Timer::after_millis(100).await;
+                led.set_high();
+                Timer::after_millis(50).await;
+            }
+            LedState::TCP(on) => {
+                led.set_high();
+                Timer::after_millis(200).await;
+                if on {
+                    led.set_low();
+                    Timer::after_millis(100).await;
+                    led.set_high();
+                    Timer::after_millis(50).await;
+                }
+            }
+            LedState::MQTT(on) => {
+                led.set_high();
+                Timer::after_millis(50).await;
+                if on {
+                    led.set_low();
+                    Timer::after_millis(100).await;
+                    led.set_high();
+                    Timer::after_millis(200).await;
+                }
+            }
+            LedState::RPCError =>{
+                led.set_high();
+                Timer::after_millis(100).await;
+                led.set_low();
+                Timer::after_millis(100).await;
+                led.set_high();
                 Timer::after_millis(100).await;
                 led.set_low();
                 Timer::after_millis(100).await;
                 led.set_high();
                 Timer::after_millis(100).await;
             }
-            LedState::TCP(_on) => {
-                led.set_high();
-                Timer::after_millis(100).await;
-            }
-            _ => {}
         }
     }
 }

@@ -30,10 +30,13 @@ pub fn mqtt_send(buf: &[u8]) {
         panic!("Packet too big");
     }
     stack_buf[..len].copy_from_slice(&buf[..len]);
-    WRITE.try_send(Packet {
-        buf: stack_buf,
-        len,
-    }).inspect_err(|e| defmt::error!("mqtt queue full")).ok();
+    WRITE
+        .try_send(Packet {
+            buf: stack_buf,
+            len,
+        })
+        .inspect_err(|_e| defmt::error!("mqtt queue full"))
+        .ok();
 }
 
 #[embassy_executor::task]
@@ -54,6 +57,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
             if let Err(e) = addr {
                 defmt::error!("dns query {:?}", defmt::Debug2Format(&e));
                 Timer::after_millis(500).await;
+                led::state(led::LedState::MQTT(false));
                 continue 'main;
             }
 
@@ -67,6 +71,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
             if let Err(e) = result_connection {
                 defmt::error!("socket connect {:?}", defmt::Debug2Format(&e));
                 Timer::after_millis(500).await;
+                led::state(led::LedState::MQTT(false));
                 continue 'main;
             }
 
@@ -95,6 +100,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
             if let Err(e) = result_connection {
                 defmt::error!("connect mqtt {:?}", defmt::Debug2Format(&e));
                 Timer::after_millis(500).await;
+                led::state(led::LedState::MQTT(false));
                 continue 'main;
             }
         }
@@ -111,6 +117,8 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
                 led::state(led::LedState::RPCError);
             }
         }
+
+        led::state(led::LedState::MQTT(true));
 
         const TOPIC_NAME: &str = concat!("iot/", env!("ID"), "/data");
         loop {
@@ -131,6 +139,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
                     if let Err(e) = r {
                         defmt::error!("publish mqtt {:?}", defmt::Debug2Format(&e));
                         Timer::after_millis(500).await;
+                        led::state(led::LedState::MQTT(false));
                         continue 'main;
                     }
                 }
@@ -140,6 +149,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
                 }
                 embassy_futures::select::Either::Second(Err(e)) => {
                     defmt::error!("poll mqtt {:?}", defmt::Debug2Format(&e));
+                    led::state(led::LedState::MQTT(false));
                     Timer::after_millis(500).await;
                     continue 'main;
                 }

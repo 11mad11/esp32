@@ -12,6 +12,8 @@ fn main() {
     //fs::copy("memory.x", out.join("memory.x")).unwrap();
     //fs::write("test.txt", out.display().to_string()).unwrap();
     //println!("cargo:rustc-link-arg=-Tmemory.x");
+    println!("cargo:rustc-link-arg=-Wl,-Map=output.map");
+
 
     let output = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
