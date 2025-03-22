@@ -16,7 +16,6 @@ struct Packet {
     len: usize,
 }
 
-#[ram]
 static WRITE: Channel<CriticalSectionRawMutex, Packet, 2> = Channel::new();
 
 #[allow(dead_code)] //TODO remove
