@@ -1,16 +1,13 @@
 use core::net::Ipv4Addr;
 
-use crate::{memory::MEM, mk_static};
+use crate::mk_static;
 use defmt::{error, println, warn, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_net::{
     udp::{PacketMetadata, UdpSocket},
     Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4,
 };
-use embassy_sync::{
-    blocking_mutex::raw::CriticalSectionRawMutex,
-    channel::Channel,
-};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Duration;
 use esp_hal::{
     peripherals::{RADIO_CLK, WIFI},
@@ -20,20 +17,19 @@ use esp_hal::{
 use esp_wifi::{
     wifi::{
         AccessPointConfiguration, ClientConfiguration, Configuration, WifiController, WifiDevice,
-        WifiEvent
+        WifiEvent,
     },
     EspWifiController,
 };
+use heapless::String;
 
-//https://github.com/espressif/esp-idf/blob/master/components/esp_wifi/include/esp_wifi.h#L63
-#[embassy_executor::task]
-pub async fn wifi_task(
+pub async fn wifi_stack(
     wifi: WIFI,
     mut rng: Rng,
     timer: Timer,
     radio_clk: RADIO_CLK,
     spawner: Spawner,
-) -> ! {
+) -> Stack<'static> {
     let inited = &*mk_static!(
         EspWifiController<'static>,
         esp_wifi::init(timer, rng.clone(), radio_clk).unwrap()
@@ -63,14 +59,10 @@ pub async fn wifi_task(
         (rng.random() as u64) << 32 | rng.random() as u64,
     );
 
-    let (ssid, password) = {
-        let mem = MEM.lock().await;
-        (mem.ssid.clone(), mem.password.clone())
-    };
     let client_config = Configuration::Mixed(
         ClientConfiguration {
-            ssid,
-            password,
+            ssid: String::try_from(option_env!("SSID").unwrap_or("")).unwrap(),
+            password: String::try_from(option_env!("WPWD").unwrap_or("")).unwrap(),
             ..Default::default()
         },
         AccessPointConfiguration {
@@ -108,9 +100,10 @@ pub async fn wifi_task(
 
     println!("Ap link up");
 
-    loop {
-        embassy_time::Timer::after(Duration::from_millis(500)).await;
-    }
+    //Try to connect to wifi
+    WIFI_CRL.send(WifiCmd::ConnectSta).await;
+
+    return sta_stack;
 }
 
 #[embassy_executor::task(pool_size = 2)]
