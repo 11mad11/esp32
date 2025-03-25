@@ -17,7 +17,7 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
 use ethernet::ethernet_task;
-//use memory::MEM;
+use memory::MEM;
 use mqtt::mqtt_task;
 use tcp::tcp_task;
 use {esp_backtrace as _, esp_println as _};
@@ -25,7 +25,7 @@ use {esp_backtrace as _, esp_println as _};
 extern crate alloc;
 mod ethernet;
 mod led;
-//mod memory;
+mod memory;
 mod mqtt;
 mod tcp;
 
@@ -61,9 +61,9 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
-    //{
-    //    info!("Memory version: {}", MEM.try_lock().unwrap().version)
-    //}
+    {
+        info!("Memory version: {}", MEM.try_lock().unwrap().version)
+    }
 
     spawner
         .spawn(led::task(peripherals.GPIO2.degrade()))

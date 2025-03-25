@@ -7,13 +7,14 @@ use embedded_storage::{ReadStorage, Storage};
 use esp_storage::{FlashStorage, FlashStorageError};
 
 const ADDR: u32 = 0x9000;
+const MAX_LEN: usize = 0x6000;
 const VERSION: u64 = 0x1;
 
 #[repr(C)]
 pub struct InnerMem {
     pub version: u64,
     pub ssid: heapless::String<32>,
-    pub password: heapless::String<64>
+    pub password: heapless::String<64>,
 }
 
 pub struct Mem {
@@ -51,7 +52,11 @@ impl DerefMut for Mem {
 pub static MEM: Mutex<CriticalSectionRawMutex, LazyCell<Mem>> = Mutex::new(LazyCell::new(|| {
     let mut flash = FlashStorage::new();
 
-    println!("Flash size = {}", flash.capacity());
+    println!("Mem size = {}", core::mem::size_of::<InnerMem>());
+
+    if MAX_LEN <= core::mem::size_of::<InnerMem>() {
+        panic!("Mem struct is too big for reserved space")
+    }
 
     let mut uninit_inner_mem = MaybeUninit::<InnerMem>::uninit();
     let data: &mut [u8] = unsafe {
@@ -62,11 +67,14 @@ pub static MEM: Mutex<CriticalSectionRawMutex, LazyCell<Mem>> = Mutex::new(LazyC
 
     let inner_mem = match u64::from_le_bytes(data[..8].try_into().unwrap()) {
         VERSION => unsafe { uninit_inner_mem.assume_init() },
-        _ => InnerMem { 
-            version: VERSION,
-            ssid: heapless::String::new(),
-            password: heapless::String::new(),
-         },
+        v => {
+            defmt::warn!("Version do not match any known version: {:x}", v);
+            InnerMem {
+                version: VERSION,
+                ssid: heapless::String::new(),
+                password: heapless::String::new(),
+            }
+        }
     };
     Mem { flash, inner_mem }
 }));
