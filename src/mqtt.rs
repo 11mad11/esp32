@@ -6,7 +6,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 use embassy_time::Timer;
 use embedded_hal::digital::OutputPin;
 use esp_hal::gpio::{AnyPin, Output};
-use heapless::Vec;
+use heapless::{String, Vec};
 use mountain_mqtt::{
     client::{Client, ClientError, Delay, Message},
     packets::connect::Connect,
@@ -17,21 +17,28 @@ use crate::led;
 pub const MQTT_PACKET_LEN: usize = 1024;
 
 struct Packet {
+    topic: String<64>,
     buf: [u8; MQTT_PACKET_LEN],
     len: usize,
 }
 
-static WRITE: Channel<CriticalSectionRawMutex, Packet, 2> = Channel::new();
+static WRITE: Channel<CriticalSectionRawMutex, Packet, 4> = Channel::new();
 
-pub fn mqtt_send(buf: &[u8]) {
+pub fn mqtt_send(buf: &[u8],topic: &str) {
+    let topic = String::try_from(topic);
+    if let Err(_) = topic{
+        panic!("Topic too big");//TODO
+    }
+
     let mut stack_buf = [0u8; MQTT_PACKET_LEN];
     let len = buf.len();
     if len >= MQTT_PACKET_LEN {
-        panic!("Packet too big");
+        panic!("Packet too big");//TODO
     }
     stack_buf[..len].copy_from_slice(&buf[..len]);
     WRITE
         .try_send(Packet {
+            topic: topic.unwrap(),
             buf: stack_buf,
             len,
         })
@@ -120,7 +127,6 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
 
         led::state(led::LedState::MQTT(true));
 
-        const TOPIC_NAME: &str = concat!("iot/", env!("ID"), "/data");
         loop {
             match select(WRITE.receive(), client.poll(true)).await {
                 embassy_futures::select::Either::First(packet) => {
@@ -130,7 +136,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
                     }
                     let r = client
                         .publish(
-                            TOPIC_NAME,
+                            &packet.topic,
                             &packet.buf[..packet.len],
                             mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                             false,
