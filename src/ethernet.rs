@@ -19,9 +19,8 @@ use esp_hal::rng::Rng;
 use esp_hal::spi::master::Spi;
 use esp_hal::Async;
 use esp_hal::Blocking;
+use static_cell::ConstStaticCell;
 use static_cell::StaticCell;
-
-use crate::mk_static;
 
 const N_RX: usize = 15;
 const N_TX: usize = 15;
@@ -38,13 +37,12 @@ pub async fn ethernet_task(
 
     let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
     //rng.read(&mut mac_addr[1..]);
-    static STATE: StaticCell<State<N_RX, N_TX>> = StaticCell::new();
-    let state = STATE.init(State::<N_RX, N_TX>::new());
+    static STATE: ConstStaticCell<State<N_RX, N_TX>> = ConstStaticCell::new(State::new());
 
     static BUS: StaticCell<Mutex<CriticalSectionRawMutex, Spi<'static, Async>>> = StaticCell::new();
     let (wiznet, wiznet_runner) = embassy_net_wiznet::new::<N_RX, N_TX, W5500, _, _, _>(
         mac_addr,
-        state,
+        STATE.take(),
         SpiDevice::new(
             BUS.init(Mutex::<CriticalSectionRawMutex, Spi<'static, Async>>::new(
                 spi_dev,
@@ -58,10 +56,11 @@ pub async fn ethernet_task(
     .inspect_err(|e| defmt::error!("{:#?}", defmt::Debug2Format(e)))
     .unwrap();
 
+    static SOCK: ConstStaticCell<StackResources<8>> = ConstStaticCell::new(StackResources::new());
     let (stack, stack_runner) = embassy_net::new(
         wiznet,
         embassy_net::Config::dhcpv4(DhcpConfig::default()),
-        mk_static!(StackResources<8>, StackResources::<8>::new()),
+        SOCK.take(),
         (rng.random() as u64) << 32 | rng.random() as u64,
     );
 
