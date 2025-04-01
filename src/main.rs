@@ -11,15 +11,16 @@ use core::cell::LazyCell;
 use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::Timer;
-use esp_hal::gpio::Pin;
-use esp_hal::{peripherals, spi};
+use esp_hal::gpio::{Output, Pin};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
+use esp_hal::spi;
 use ethernet::ethernet_task;
 use memory::MEM;
 use mqtt::mqtt_task;
 use tcp::tcp_task;
+use uart::uart_task;
 use {esp_backtrace as _, esp_println as _};
 
 extern crate alloc;
@@ -28,6 +29,7 @@ mod led;
 mod memory;
 mod mqtt;
 mod tcp;
+mod uart;
 
 #[macro_export]
 macro_rules! mk_static {
@@ -107,12 +109,35 @@ async fn main(spawner: Spawner) {
     led::state(led::LedState::Ok);
 
     spawner.spawn(tcp_task(stack.clone())).unwrap();
-    spawner.spawn(mqtt_task(stack.clone(),(
-        peripherals.GPIO14.degrade(),
-        peripherals.GPIO16.degrade(),
-        peripherals.GPIO17.degrade(),
-        peripherals.GPIO27.degrade(),
-    ))).unwrap();
+    spawner
+        .spawn(mqtt_task(
+            stack.clone(),
+            (
+                peripherals.GPIO14.degrade(),
+                peripherals.GPIO16.degrade(),
+                peripherals.GPIO17.degrade(),
+                peripherals.GPIO27.degrade(),
+            ),
+        ))
+        .unwrap();
+
+    {
+        let config = esp_hal::uart::Config::default()
+            .with_rx(esp_hal::uart::RxConfig::default().with_fifo_full_threshold(64u16));
+
+        let mut uart0 = esp_hal::uart::Uart::new(peripherals.UART1, config)
+            .unwrap()
+            .with_tx(peripherals.GPIO26)
+            .with_rx(peripherals.GPIO25)
+            .into_async();
+        uart0.set_at_cmd(esp_hal::uart::AtCmdConfig::default().with_cmd_char(0x04));
+        let de_pin = Output::new(
+            peripherals.GPIO13,
+            esp_hal::gpio::Level::Low,
+            Default::default(),
+        );
+        spawner.spawn(uart_task(uart0, de_pin)).unwrap();
+    }
 
     loop {
         Timer::after_secs(2).await;
