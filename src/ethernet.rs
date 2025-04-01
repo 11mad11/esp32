@@ -35,7 +35,7 @@ pub async fn ethernet_task(
 ) -> Stack<'static> {
     let spi_dev = spi_peri.into_async();
 
-    let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
+    let mac_addr = advmac::mac6!(env!("MAC")).to_array();
     //rng.read(&mut mac_addr[1..]);
     static STATE: ConstStaticCell<State<N_RX, N_TX>> = ConstStaticCell::new(State::new());
 

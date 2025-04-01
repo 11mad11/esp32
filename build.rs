@@ -1,5 +1,6 @@
+use advmac::MacAddr6;
 use dotenv::dotenv;
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{fs, io::Write, path::PathBuf, process::Command};
 
 fn main() {
     linker_be_nice();
@@ -14,29 +15,59 @@ fn main() {
     //println!("cargo:rustc-link-arg=-Tmemory.x");
     println!("cargo:rustc-link-arg=-Wl,-Map=output.map");
 
+    {
+        let output = Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output();
 
-    let output = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output();
+        let hash = match output {
+            Ok(output) => String::from_utf8(output.stdout)
+                .ok()
+                .and_then(|s| s.trim().split('\n').next().map(|s| s.to_string())),
+            Err(_) => None,
+        };
 
-    let hash = match output {
-        Ok(output) => String::from_utf8(output.stdout)
-            .ok()
-            .and_then(|s| s.trim().split('\n').next().map(|s| s.to_string())),
-        Err(_) => None,
+        let hash = hash.as_deref().unwrap_or("0000000");
+
+        println!("cargo:rustc-env=GIT_HASH={}", hash);
+    }
+
+    let mut env_file = {
+        let env_path = std::env::current_dir()
+            .expect("Failed to get current directory")
+            .join(".env");
+        if !env_path.exists() {
+            fs::File::create(env_path.clone()).expect("Failed to create .env file");
+        }
+        println!("cargo:rerun-if-changed={}",env_path.as_path().display());
+        dotenv().unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(env_path)
+            .expect("Failed to open .env file")
     };
 
-    let hash = hash.as_deref().unwrap_or("0000000");
-
-    println!("cargo:rustc-env=GIT_HASH={}", hash);
-
-    dotenv().unwrap();
     if let Ok(value) = std::env::var("TOKEN") {
         println!("cargo:rustc-env=TOKEN={}", value);
     }
     if let Ok(value) = std::env::var("ID") {
         println!("cargo:rustc-env=ID={}", value);
     }
+    {
+        let mac = std::env::var("MAC").ok().unwrap_or_else(|| {
+            let mac = generate_random_mac();
+            writeln!(env_file, "\nMAC={}", mac).expect("Failed to write MAC to .env file");
+            mac
+        });
+        println!("cargo:rustc-env=MAC={}", mac);
+    }
+}
+
+fn generate_random_mac() -> String {
+    let mut mac = MacAddr6::random();
+    mac.set_local(true);
+    mac.format_string(advmac::MacAddrFormat::ColonNotation)
 }
 
 fn linker_be_nice() {

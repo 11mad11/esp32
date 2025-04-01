@@ -84,9 +84,13 @@ mountain-mqtt = { version = "0.1.0", default-features = false, features = [
   "embedded-hal-async",
   "embedded-io-async",
 ] }
-lite-json = {version = "0.2.0", default-features = false}
+lite-json = { version = "0.2.0", default-features = false }
+serde-json-core = "0.6.0"
+serde = { version = "1.0.219", default-features = false }
+advmac = { version = "1.0.3", default-features = false }
 
 [build-dependencies]
+advmac = { version = "1.0.3", features = ["rand"]}
 dotenv = "0.15.0"
 
 [profile.dev]
