@@ -1,18 +1,16 @@
-use core::{ascii::Char, cell::RefCell};
+use core::ascii::Char;
 
 use embassy_futures::select::select;
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Timer;
-use embedded_hal::digital::OutputPin;
-use esp_hal::gpio::{AnyPin, Output};
 use heapless::{String, Vec};
 use mountain_mqtt::{
     client::{Client, ClientError, Delay, Message},
     packets::connect::Connect,
 };
 
-use crate::led;
+use crate::{led, output};
 
 pub const MQTT_PACKET_LEN: usize = 1024;
 
@@ -24,16 +22,16 @@ struct Packet {
 
 static WRITE: Channel<CriticalSectionRawMutex, Packet, 4> = Channel::new();
 
-pub fn mqtt_send(buf: &[u8],topic: &str) {
+pub fn mqtt_send(buf: &[u8], topic: &str) {
     let topic = String::try_from(topic);
-    if let Err(_) = topic{
-        panic!("Topic too big");//TODO
+    if let Err(_) = topic {
+        panic!("Topic too big"); //TODO
     }
 
     let mut stack_buf = [0u8; MQTT_PACKET_LEN];
     let len = buf.len();
     if len >= MQTT_PACKET_LEN {
-        panic!("Packet too big");//TODO
+        panic!("Packet too big"); //TODO
     }
     stack_buf[..len].copy_from_slice(&buf[..len]);
     WRITE
@@ -47,11 +45,10 @@ pub fn mqtt_send(buf: &[u8],topic: &str) {
 }
 
 #[embassy_executor::task]
-pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, AnyPin)) {
+pub async fn mqtt_task(stack: Stack<'static>) {
     let mut rx_buffer = [0u8; 256];
     let mut tx_buffer = [0u8; 256];
     let mut mqtt_buffer = [0u8; 256];
-    let handler = message_handler(pins);
 
     'main: loop {
         let mut client = {
@@ -88,7 +85,7 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
                 &mut mqtt_buffer,
                 MyDelay,
                 5000,
-                |msg| handler(msg),
+                message_handler,
             )
         };
 
@@ -164,57 +161,25 @@ pub async fn mqtt_task(stack: Stack<'static>, pins: (AnyPin, AnyPin, AnyPin, Any
     }
 }
 
-pub fn message_handler(
-    pins: (AnyPin, AnyPin, AnyPin, AnyPin),
-) -> impl Fn(Message) -> Result<(), ClientError> {
-    let one = Char::digit(1).unwrap();
-    let pins = RefCell::new((
-        Output::new(pins.0, esp_hal::gpio::Level::High, Default::default()),
-        Output::new(pins.1, esp_hal::gpio::Level::High, Default::default()),
-        Output::new(pins.2, esp_hal::gpio::Level::High, Default::default()),
-        Output::new(pins.3, esp_hal::gpio::Level::High, Default::default()),
-    ));
+pub fn message_handler(msg: Message) -> Result<(), ClientError> {
+    match msg.topic_name {
+        concat!("iot/", env!("ID"), "/ctrl") => {
+            let one = Char::digit(1).unwrap();
+            let ascii = msg.payload.as_ascii().unwrap();
+            defmt::info!("{}", defmt::Debug2Format(ascii));
 
-    move |msg: Message| -> Result<(), ClientError> {
-        let ascii = msg.payload.as_ascii().unwrap();
-        defmt::info!("{}", defmt::Debug2Format(ascii));
-
-        if ascii.len() >= 4 {
-            let mut pins = pins.borrow_mut();
-            pins.0
-                .set_state(if ascii[0] == one {
-                    embedded_hal::digital::PinState::Low
-                } else {
-                    embedded_hal::digital::PinState::High
-                })
-                .unwrap();
-            pins.1
-                .set_state(if ascii[1] == one {
-                    embedded_hal::digital::PinState::Low
-                } else {
-                    embedded_hal::digital::PinState::High
-                })
-                .unwrap();
-            pins.2
-                .set_state(if ascii[2] == one {
-                    embedded_hal::digital::PinState::Low
-                } else {
-                    embedded_hal::digital::PinState::High
-                })
-                .unwrap();
-            pins.3
-                .set_state(if ascii[3] == one {
-                    embedded_hal::digital::PinState::Low
-                } else {
-                    embedded_hal::digital::PinState::High
-                })
-                .unwrap();
-        } else {
-            defmt::warn!("Payload too short to control pins");
+            if ascii.len() >= output::NUM_OUT {
+                let states = (0..output::NUM_OUT)
+                    .map(|i| if ascii[i] == one { Some(3) } else { None })
+                    .collect::<Vec<_, { output::NUM_OUT }>>();
+                output::output_state(states.as_slice().try_into().unwrap_or_default());
+            } else {
+                defmt::warn!("Payload too short to control pins");
+            }
         }
-
-        Ok(())
+        _ => (),
     }
+    Ok(())
 }
 
 struct MyDelay;

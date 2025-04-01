@@ -19,6 +19,7 @@ use esp_hal::spi;
 use ethernet::ethernet_task;
 use memory::MEM;
 use mqtt::mqtt_task;
+use output::output_task;
 use tcp::tcp_task;
 use uart::uart_task;
 use {esp_backtrace as _, esp_println as _};
@@ -28,6 +29,7 @@ mod ethernet;
 mod led;
 mod memory;
 mod mqtt;
+mod output;
 mod tcp;
 mod uart;
 
@@ -108,18 +110,32 @@ async fn main(spawner: Spawner) {
 
     led::state(led::LedState::Ok);
 
-    spawner.spawn(tcp_task(stack.clone())).unwrap();
     spawner
-        .spawn(mqtt_task(
-            stack.clone(),
-            (
-                peripherals.GPIO14.degrade(),
-                peripherals.GPIO16.degrade(),
-                peripherals.GPIO17.degrade(),
-                peripherals.GPIO27.degrade(),
+        .spawn(output_task([
+            Output::new(
+                peripherals.GPIO14,
+                esp_hal::gpio::Level::High,
+                Default::default(),
             ),
-        ))
+            Output::new(
+                peripherals.GPIO17,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+            Output::new(
+                peripherals.GPIO16,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+            Output::new(
+                peripherals.GPIO27,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+        ]))
         .unwrap();
+    spawner.spawn(tcp_task(stack.clone())).unwrap();
+    spawner.spawn(mqtt_task(stack.clone())).unwrap();
 
     {
         let config = esp_hal::uart::Config::default()
