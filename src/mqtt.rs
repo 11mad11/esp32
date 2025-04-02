@@ -164,18 +164,18 @@ pub async fn mqtt_task(stack: Stack<'static>) {
 pub fn message_handler(msg: Message) -> Result<(), ClientError> {
     match msg.topic_name {
         concat!("iot/", env!("ID"), "/ctrl") => {
-            let one = Char::digit(1).unwrap();
             let ascii = msg.payload.as_ascii().unwrap();
             defmt::info!("{}", defmt::Debug2Format(ascii));
 
-            if ascii.len() >= output::NUM_OUT {
-                let states = (0..output::NUM_OUT)
-                    .map(|i| if ascii[i] == one { Some(3) } else { None })
-                    .collect::<Vec<_, { output::NUM_OUT }>>();
-                output::output_state(states.as_slice().try_into().unwrap_or_default());
-            } else {
-                defmt::warn!("Payload too short to control pins");
+            let mut bytes = [None; 4];
+            for (i, chunk) in ascii.chunks(2).take(4).enumerate() {
+                if let Ok(byte) = u8::from_str_radix(chunk.as_str(), 16) {
+                    bytes[i] = Some(byte);
+                } else {
+                    defmt::error!("Invalid hex byte: {}", defmt::Debug2Format(chunk));
+                }
             }
+            output::output_state(bytes);
         }
         _ => (),
     }
