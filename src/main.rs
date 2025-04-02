@@ -12,10 +12,10 @@ use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use esp_hal::gpio::{Output, Pin};
+use esp_hal::spi;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
-use esp_hal::spi;
 use ethernet::ethernet_task;
 use memory::MEM;
 use mqtt::mqtt_task;
@@ -32,6 +32,7 @@ mod mqtt;
 mod output;
 mod tcp;
 mod uart;
+mod wifi;
 
 #[macro_export]
 macro_rules! mk_static {
@@ -58,7 +59,7 @@ async fn main(spawner: Spawner) {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    esp_alloc::heap_allocator!(#[link_section = ".dram2_uninit"] size: 1 * 1024);
+    esp_alloc::heap_allocator!(#[link_section = ".dram2_uninit"] size: 72 * 1024);
 
     let timer0 = TimerGroup::new(peripherals.TIMG1);
     esp_hal_embassy::init(timer0.timer0);
@@ -75,7 +76,7 @@ async fn main(spawner: Spawner) {
 
     let rng = Rng::new(peripherals.RNG);
 
-    let stack = {
+    let mut stack = {
         let mut spi_cfg = spi::master::Config::default();
         spi_cfg = spi_cfg.with_frequency(Rate::from_hz(1_000_000));
         let mut spi = spi::master::Spi::new(peripherals.SPI3, spi_cfg).unwrap();
@@ -93,6 +94,16 @@ async fn main(spawner: Spawner) {
         )
     }
     .await;
+
+    if !stack.is_link_up() {
+        stack = wifi::wifi_stack(
+            peripherals.WIFI,
+            rng.clone(),
+            TimerGroup::new(peripherals.TIMG0).timer0,
+            peripherals.RADIO_CLK,
+            spawner.clone(),
+        ).await;
+    }
 
     led::state(led::LedState::Ok);
 
