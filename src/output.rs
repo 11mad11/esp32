@@ -1,7 +1,6 @@
-use embassy_futures::select::select;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use embassy_time::{Instant, Timer, WithTimeout};
-use esp_hal::gpio::{AnyPin, Output};
+use embassy_time::{Instant, WithTimeout};
+use esp_hal::gpio::Output;
 
 pub const NUM_OUT: usize = 4;
 type Packet = [Option<u8>; NUM_OUT];

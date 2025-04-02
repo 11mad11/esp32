@@ -1,6 +1,6 @@
 use advmac::MacAddr6;
 use dotenv::dotenv;
-use std::{fs, io::Write, path::PathBuf, process::Command};
+use std::{fs, io::Write, process::Command};
 
 fn main() {
     linker_be_nice();

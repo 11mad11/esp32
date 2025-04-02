@@ -2,7 +2,6 @@ use embassy_futures::select::{self, select};
 use embassy_net::{tcp::TcpSocket, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
-use esp_hal::ram;
 
 use crate::{
     led,

@@ -1,5 +1,3 @@
-use core::ascii::Char;
-
 use embassy_futures::select::select;
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
