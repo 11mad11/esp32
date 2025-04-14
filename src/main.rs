@@ -10,7 +10,7 @@ use core::cell::LazyCell;
 
 use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer, WithTimeout};
 use esp_hal::gpio::{Output, Pin};
 use esp_hal::spi;
 use esp_hal::time::Rate;
@@ -97,6 +97,7 @@ async fn main(spawner: Spawner) {
     }
     .await;
 
+    stack.wait_link_up().with_timeout(Duration::from_secs(2)).await.ok();
     if !stack.is_link_up() {
         stack = wifi::wifi_stack(
             peripherals.WIFI,
