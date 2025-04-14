@@ -10,10 +10,10 @@ use mountain_mqtt::{
 };
 
 use crate::{
-    iot_topic,
-    led,
+    iot_topic, led,
     ota::{ota_start, ota_write},
     output,
+    tcp::tcp_send,
 };
 
 pub const MQTT_PACKET_LEN: usize = 1024;
@@ -205,6 +205,9 @@ pub fn message_handler(msg: Message) -> Result<(), ClientError> {
         }
         concat!(iot_topic!(), "/ota/data") => {
             ota_write(Box::from(msg.payload));
+        }
+        concat!(iot_topic!(), "/rpc/tcp") => {
+            tcp_send(msg.payload);
         }
         _ => (),
     }

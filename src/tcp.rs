@@ -4,8 +4,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 use embassy_time::{Duration, Timer};
 
 use crate::{
-    iot_topic,
-    led,
+    iot_topic, led,
     mqtt::{mqtt_send, MQTT_PACKET_LEN},
 };
 
@@ -18,8 +17,7 @@ struct Packet {
 
 static WRITE: Channel<CriticalSectionRawMutex, Packet, 2> = Channel::new();
 
-#[allow(dead_code)] //TODO remove
-pub async fn tcp_send(buf: &[u8]) {
+pub fn tcp_send(buf: &[u8]) {
     let mut stack_buf = [0u8; TCP_PACKET_LEN];
     let len = buf.len();
     if len >= TCP_PACKET_LEN {
@@ -27,11 +25,12 @@ pub async fn tcp_send(buf: &[u8]) {
     }
     stack_buf[..len].copy_from_slice(&buf[..len]);
     WRITE
-        .send(Packet {
+        .try_send(Packet {
             buf: stack_buf,
             len,
         })
-        .await;
+        .inspect_err(|_e| defmt::error!("tcp queue full"))
+        .ok();
 }
 
 #[embassy_executor::task]
