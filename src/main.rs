@@ -46,6 +46,13 @@ macro_rules! mk_static {
     }};
 }
 
+#[macro_export]
+macro_rules! iot_topic {
+    () => {
+        concat!("iot/", env!("ORG"), "/pcb/", env!("ID"))
+    };
+}
+
 const GIT_HASH: LazyCell<[u8; 7]> = LazyCell::new(|| {
     let s = env!("GIT_HASH");
     let mut hash = [0u8; 7];

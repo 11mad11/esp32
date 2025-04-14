@@ -4,7 +4,7 @@ use embassy_time::Timer;
 use embedded_io_async::Write;
 use esp_hal::{gpio::Output, uart::Uart, Async};
 
-use crate::{led, mqtt};
+use crate::{iot_topic, led, mqtt};
 
 pub static UART_PACKET_LEN: usize = 128;
 
@@ -32,7 +32,7 @@ pub async fn uart_send(buf: &[u8]) {
 }
 
 #[embassy_executor::task]
-pub async fn uart_task(mut uart: Uart<'static, Async>,mut de_pin: Output<'static>) {
+pub async fn uart_task(mut uart: Uart<'static, Async>, mut de_pin: Output<'static>) {
     let mut buf = [0u8; 128];
     loop {
         match select(WRITE.receive(), uart.read_async(&mut buf)).await {
@@ -45,7 +45,7 @@ pub async fn uart_task(mut uart: Uart<'static, Async>,mut de_pin: Output<'static
                 de_pin.set_low();
             }
             embassy_futures::select::Either::Second(Ok(len)) => {
-                mqtt::mqtt_send(&buf[..len], concat!("iot/", env!("ID"), "/uart"));
+                mqtt::mqtt_send(&buf[..len], concat!(iot_topic!(), "/uart"));
             }
             embassy_futures::select::Either::Second(Err(e)) => {
                 defmt::error!("uart read {}", e);

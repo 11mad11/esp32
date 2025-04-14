@@ -8,7 +8,7 @@ use esp_hal_ota::Ota;
 use esp_storage::FlashStorage;
 use serde::Deserialize;
 
-use crate::mqtt::mqtt_send;
+use crate::{iot_topic, mqtt::mqtt_send};
 
 #[derive(Debug, Deserialize)]
 struct Start {
@@ -27,14 +27,14 @@ pub fn ota_start(payload: &[u8]) {
     if let Err(e) = r {
         mqtt_send(
             format!("Could not deserialize: {}", e).as_bytes(),
-            concat!("iot/", env!("ID"), "/ota/log"),
+            concat!(iot_topic!(), "/ota/log"),
         );
     } else {
         let r = START_CH.try_send(r.unwrap().0);
         if let Err(_) = r {
             mqtt_send(
                 "Full start queue, dropping".as_bytes(),
-                concat!("iot/", env!("ID"), "/ota/log"),
+                concat!(iot_topic!(), "/ota/log"),
             );
         }
     }
@@ -45,7 +45,7 @@ pub fn ota_write(payload: Box<[u8]>) {
     if let Err(_) = r {
         mqtt_send(
             "Full write queue, dropping".as_bytes(),
-            concat!("iot/", env!("ID"), "/ota/log"),
+            concat!(iot_topic!(), "/ota/log"),
         );
     }
 }
@@ -67,11 +67,11 @@ pub async fn ota_task() {
                     .inspect_err(|e| {
                         mqtt_send(
                             format!("Could not begin: {:?}", e).as_bytes(),
-                            concat!("iot/", env!("ID"), "/ota/log"),
+                            concat!(iot_topic!(), "/ota/log"),
                         );
                     })
                     .ok();
-                mqtt_send(&[], concat!("iot/", env!("ID"), "/ota/ready"));
+                mqtt_send(&[], concat!(iot_topic!(), "/ota/ready"));
             }
             embassy_futures::select::Either3::Second(c) => {
                 let r = ota
@@ -79,31 +79,31 @@ pub async fn ota_task() {
                     .inspect_err(|e| {
                         mqtt_send(
                             format!("Could not write: {:?}", e).as_bytes(),
-                            concat!("iot/", env!("ID"), "/ota/log"),
+                            concat!(iot_topic!(), "/ota/log"),
                         );
                     })
                     .ok();
 
                 mqtt_send(
                     format!("{:#?}", ota.get_ota_progress()).as_bytes(),
-                    concat!("iot/", env!("ID"), "/ota/log"),
+                    concat!(iot_topic!(), "/ota/log"),
                 );
 
                 if let Some(true) = r {
                     let r = ota.ota_flush(true, true).inspect_err(|e| {
                         mqtt_send(
                             format!("Could not flush: {:?}", e).as_bytes(),
-                            concat!("iot/", env!("ID"), "/ota/log"),
+                            concat!(iot_topic!(), "/ota/log"),
                         );
                     });
                     if r.is_ok() {
-                        mqtt_send(b"Reseting...", concat!("iot/", env!("ID"), "/ota/log"));
+                        mqtt_send(b"Reseting...", concat!(iot_topic!(), "/ota/log"));
                         Timer::after_secs(2).await;
                         esp_hal::system::software_reset();
                     }
                 }
 
-                mqtt_send(&[], concat!("iot/", env!("ID"), "/ota/ready"));
+                mqtt_send(&[], concat!(iot_topic!(), "/ota/ready"));
             }
             embassy_futures::select::Either3::Third(_) => {
                 ota.ota_mark_app_valid().ok();

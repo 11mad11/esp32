@@ -54,6 +54,9 @@ fn main() {
     if let Ok(value) = std::env::var("ID") {
         println!("cargo:rustc-env=ID={}", value);
     }
+    if let Ok(value) = std::env::var("ORG") {
+        println!("cargo:rustc-env=ORG={}", value);
+    }
     {
         let mac = std::env::var("MAC").ok().unwrap_or_else(|| {
             let mac = generate_random_mac();

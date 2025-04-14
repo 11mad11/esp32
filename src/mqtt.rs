@@ -9,7 +9,12 @@ use mountain_mqtt::{
     packets::connect::Connect,
 };
 
-use crate::{led, ota::{ota_start, ota_write}, output};
+use crate::{
+    iot_topic,
+    led,
+    ota::{ota_start, ota_write},
+    output,
+};
 
 pub const MQTT_PACKET_LEN: usize = 1024;
 
@@ -110,7 +115,7 @@ pub async fn mqtt_task(stack: Stack<'static>) {
         {
             let ctrl = client
                 .subscribe(
-                    concat!("iot/", env!("ID"), "/ctrl"),
+                    concat!(iot_topic!(), "/ctrl"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
@@ -120,7 +125,7 @@ pub async fn mqtt_task(stack: Stack<'static>) {
             }
             let ctrl = client
                 .subscribe(
-                    concat!("iot/", env!("ID"), "/ota/start"),
+                    concat!(iot_topic!(), "/ota/start"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
@@ -130,7 +135,7 @@ pub async fn mqtt_task(stack: Stack<'static>) {
             }
             let ctrl = client
                 .subscribe(
-                    concat!("iot/", env!("ID"), "/ota/data"),
+                    concat!(iot_topic!(), "/ota/data"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
@@ -181,7 +186,7 @@ pub async fn mqtt_task(stack: Stack<'static>) {
 
 pub fn message_handler(msg: Message) -> Result<(), ClientError> {
     match msg.topic_name {
-        concat!("iot/", env!("ID"), "/ctrl") => {
+        concat!(iot_topic!(), "/ctrl") => {
             let ascii = msg.payload.as_ascii().unwrap();
             defmt::info!("{}", defmt::Debug2Format(ascii));
 
@@ -194,11 +199,11 @@ pub fn message_handler(msg: Message) -> Result<(), ClientError> {
                 }
             }
             output::output_state(bytes);
-        },
-        concat!("iot/", env!("ID"), "/ota/start") =>{
+        }
+        concat!(iot_topic!(), "/ota/start") => {
             ota_start(msg.payload);
-        },
-        concat!("iot/", env!("ID"), "/ota/data") =>{
+        }
+        concat!(iot_topic!(), "/ota/data") => {
             ota_write(Box::from(msg.payload));
         }
         _ => (),
