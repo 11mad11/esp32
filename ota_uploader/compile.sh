@@ -1,0 +1,1 @@
+espflash save-image --chip esp32 ../target/xtensa-esp32-none-elf/debug/esp32 ./firmware.bin

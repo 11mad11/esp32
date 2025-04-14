@@ -19,6 +19,7 @@ use esp_hal::{clock::CpuClock, rng::Rng};
 use ethernet::ethernet_task;
 use memory::MEM;
 use mqtt::mqtt_task;
+use ota::ota_task;
 use output::output_task;
 use tcp::tcp_task;
 use uart::uart_task;
@@ -33,6 +34,7 @@ mod output;
 mod tcp;
 mod uart;
 mod wifi;
+mod ota;
 
 #[macro_export]
 macro_rules! mk_static {
@@ -147,6 +149,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
     spawner.spawn(tcp_task(stack.clone())).unwrap();
     spawner.spawn(mqtt_task(stack.clone())).unwrap();
+    spawner.spawn(ota_task()).unwrap();
 
     {
         let config = esp_hal::uart::Config::default()

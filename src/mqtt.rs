@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use embassy_futures::select::select;
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
@@ -8,7 +9,7 @@ use mountain_mqtt::{
     packets::connect::Connect,
 };
 
-use crate::{led, output};
+use crate::{led, ota::{ota_start, ota_write}, output};
 
 pub const MQTT_PACKET_LEN: usize = 1024;
 
@@ -44,14 +45,13 @@ pub fn mqtt_send(buf: &[u8], topic: &str) {
 
 #[embassy_executor::task]
 pub async fn mqtt_task(stack: Stack<'static>) {
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_buffer = [0u8; 256];
-    let mut mqtt_buffer = [0u8; 256];
+    let rx_buffer = &mut *Box::new([0u8; 1024]);
+    let tx_buffer = &mut *Box::new([0u8; 1024]);
+    let mqtt_buffer = &mut *Box::new([0u8; 2048]);
 
     'main: loop {
         let mut client = {
-            let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-
+            let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
             let addr = stack
                 .dns_query("ssca.desrochers.space", smoltcp::wire::DnsQueryType::A)
                 .await;
@@ -80,7 +80,7 @@ pub async fn mqtt_task(stack: Stack<'static>) {
             let connection = mountain_mqtt::embedded_io_async::ConnectionEmbedded::new(socket);
             mountain_mqtt::client::ClientNoQueue::new(
                 connection,
-                &mut mqtt_buffer,
+                mqtt_buffer,
                 MyDelay,
                 5000,
                 message_handler,
@@ -111,6 +111,26 @@ pub async fn mqtt_task(stack: Stack<'static>) {
             let ctrl = client
                 .subscribe(
                     concat!("iot/", env!("ID"), "/ctrl"),
+                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                )
+                .await;
+            if let Err(e) = ctrl {
+                defmt::error!("{:?}", defmt::Debug2Format(&e));
+                led::state(led::LedState::RPCError);
+            }
+            let ctrl = client
+                .subscribe(
+                    concat!("iot/", env!("ID"), "/ota/start"),
+                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                )
+                .await;
+            if let Err(e) = ctrl {
+                defmt::error!("{:?}", defmt::Debug2Format(&e));
+                led::state(led::LedState::RPCError);
+            }
+            let ctrl = client
+                .subscribe(
+                    concat!("iot/", env!("ID"), "/ota/data"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
@@ -174,6 +194,12 @@ pub fn message_handler(msg: Message) -> Result<(), ClientError> {
                 }
             }
             output::output_state(bytes);
+        },
+        concat!("iot/", env!("ID"), "/ota/start") =>{
+            ota_start(msg.payload);
+        },
+        concat!("iot/", env!("ID"), "/ota/data") =>{
+            ota_write(Box::from(msg.payload));
         }
         _ => (),
     }

@@ -50,9 +50,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.96"
+version = "1.0.97"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b964d184e89d9b6b67dd2715bc8e74cf3107fb2b529990c90cf517326150bf4"
+checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
 
 [[package]]
 name = "arrayvec"
@@ -896,6 +896,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-hal-ota"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91b338ab6acb947c3589e8c086541b5a44c74afe5aba97c38090090c7952ea6c"
+dependencies = [
+ "embedded-storage",
+ "esp32 0.36.0",
+ "log",
+]
+
+[[package]]
 name = "esp-hal-procmacros"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1006,6 +1017,7 @@ name = "esp32"
 version = "0.1.0"
 dependencies = [
  "advmac",
+ "anyhow",
  "bleps",
  "critical-section",
  "defmt",
@@ -1027,6 +1039,7 @@ dependencies = [
  "esp-backtrace",
  "esp-hal",
  "esp-hal-embassy",
+ "esp-hal-ota",
  "esp-println",
  "esp-storage",
  "esp-wifi",
