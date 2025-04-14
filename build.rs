@@ -67,6 +67,7 @@ fn main() {
 fn generate_random_mac() -> String {
     let mut mac = MacAddr6::random();
     mac.set_local(true);
+    mac.set_multicast(false);
     mac.format_string(advmac::MacAddrFormat::ColonNotation)
 }
 
