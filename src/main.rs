@@ -8,6 +8,7 @@
 
 use core::cell::LazyCell;
 
+use alloc::format;
 use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer, WithTimeout};
@@ -18,7 +19,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
 use ethernet::ethernet_task;
 use memory::MEM;
-use mqtt::mqtt_task;
+use mqtt::{mqtt_send, mqtt_task};
 use ota::ota_task;
 use output::output_task;
 use tcp::tcp_task;
@@ -30,11 +31,11 @@ mod ethernet;
 mod led;
 mod memory;
 mod mqtt;
+mod ota;
 mod output;
 mod tcp;
 mod uart;
 mod wifi;
-mod ota;
 
 #[macro_export]
 macro_rules! mk_static {
@@ -104,18 +105,25 @@ async fn main(spawner: Spawner) {
     }
     .await;
 
-    stack.wait_link_up().with_timeout(Duration::from_secs(2)).await.ok();
+    led::state(led::LedState::Ok);
+
+    let mut wifi = false;
+    stack
+        .wait_link_up()
+        .with_timeout(Duration::from_secs(2))
+        .await
+        .ok();
     if !stack.is_link_up() {
+        wifi = true;
         stack = wifi::wifi_stack(
             peripherals.WIFI,
             rng.clone(),
             TimerGroup::new(peripherals.TIMG0).timer0,
             peripherals.RADIO_CLK,
             spawner.clone(),
-        ).await;
+        )
+        .await;
     }
-
-    led::state(led::LedState::Ok);
 
     defmt::info!("Waiting link...");
     stack.wait_link_up().await;
@@ -130,6 +138,16 @@ async fn main(spawner: Spawner) {
     defmt::info!("{:?}", defmt::Debug2Format(&stack.config_v4()));
 
     led::state(led::LedState::Ok);
+    mqtt_send(
+        format!(
+            "Link & config up: {:?} {:?} {:?}",
+            stack.config_v4(),
+            stack.hardware_address(),
+            wifi
+        )
+        .as_bytes(),
+        concat!(iot_topic!(), "/logs"),
+    );
 
     spawner
         .spawn(output_task([

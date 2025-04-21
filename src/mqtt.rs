@@ -3,6 +3,7 @@ use embassy_futures::select::select;
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Timer;
+use esp_hal::ram;
 use heapless::{String, Vec};
 use mountain_mqtt::{
     client::{Client, ClientError, Delay, Message},
@@ -24,7 +25,7 @@ struct Packet {
     len: usize,
 }
 
-static WRITE: Channel<CriticalSectionRawMutex, Packet, 4> = Channel::new();
+static WRITE: Channel<CriticalSectionRawMutex, Packet, 8> = Channel::new();
 
 pub fn mqtt_send(buf: &[u8], topic: &str) {
     let topic = String::try_from(topic);
@@ -115,6 +116,19 @@ pub async fn mqtt_task(stack: Stack<'static>) {
         {
             let ctrl = client
                 .subscribe(
+                    concat!(iot_topic!(), "/rpc/tcp"),
+                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                )
+                .await;
+            if let Err(e) = ctrl {
+                defmt::error!("{:?}", defmt::Debug2Format(&e));
+                led::state(led::LedState::RPCError);
+            }
+        }
+
+        {
+            let ctrl = client
+                .subscribe(
                     concat!(iot_topic!(), "/ctrl"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
@@ -146,6 +160,12 @@ pub async fn mqtt_task(stack: Stack<'static>) {
         }
 
         led::state(led::LedState::MQTT(true));
+        client.publish(
+            concat!(iot_topic!(), "/logs"),
+            b"Connected!",
+            mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+            false
+        ).await.ok();
 
         loop {
             match select(WRITE.receive(), client.poll(true)).await {

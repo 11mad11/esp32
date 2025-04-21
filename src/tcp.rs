@@ -1,3 +1,4 @@
+use alloc::format;
 use embassy_futures::select::{self, select};
 use embassy_net::{tcp::TcpSocket, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
@@ -43,7 +44,7 @@ pub async fn tcp_task(stack: Stack<'static>) {
             let mut socket = {
                 let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
                 socket.set_timeout(Some(Duration::from_secs(10)));
-                if let Err(e) = socket.accept(80).await {
+                if let Err(e) = socket.accept(10001).await {
                     defmt::info!("accept error: {:?}", defmt::Debug2Format(&e));
                     continue;
                 }
@@ -55,6 +56,11 @@ pub async fn tcp_task(stack: Stack<'static>) {
                 led::state(led::LedState::Ok);
                 socket
             };
+
+            mqtt_send(
+                format!("Accepted tcp connection: {:?}", socket.remote_endpoint()).as_bytes(),
+                concat!(iot_topic!(), "/logs"),
+            );
 
             loop_s(&mut socket).await;
 
