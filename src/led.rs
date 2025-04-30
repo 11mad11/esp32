@@ -9,7 +9,7 @@ pub enum LedState {
     TCP(bool),
     MQTT(bool),
     RPCError,
-    UartError
+    UartError,
 }
 
 static LED: Channel<CriticalSectionRawMutex, LedState, 10> = Channel::new();
@@ -51,7 +51,7 @@ pub async fn task(led: AnyPin) {
                     Timer::after_millis(200).await;
                 }
             }
-            LedState::RPCError =>{
+            LedState::RPCError => {
                 led.set_high();
                 Timer::after_millis(100).await;
                 led.set_low();
@@ -63,7 +63,7 @@ pub async fn task(led: AnyPin) {
                 led.set_high();
                 Timer::after_millis(100).await;
             }
-            LedState::UartError =>{
+            LedState::UartError => {
                 led.set_high();
                 Timer::after_millis(100).await;
                 led.set_low();

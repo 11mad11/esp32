@@ -107,14 +107,12 @@ async fn main(spawner: Spawner) {
 
     led::state(led::LedState::Ok);
 
-    let mut wifi = false;
-    stack
+    let wifi = stack
         .wait_link_up()
         .with_timeout(Duration::from_secs(2))
         .await
-        .ok();
-    if !stack.is_link_up() {
-        wifi = true;
+        .is_err();
+    if wifi {
         stack = wifi::wifi_stack(
             peripherals.WIFI,
             rng.clone(),

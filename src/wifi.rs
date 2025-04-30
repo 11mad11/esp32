@@ -23,14 +23,6 @@ use esp_wifi::{
 };
 use heapless::String;
 
-/*wifi_stack(
-            peripherals.WIFI,
-            rng.clone(),
-            TimerGroup::new(peripherals.TIMG0).timer0,
-            peripherals.RADIO_CLK,
-            spawner.clone()
-        ) */
-
 pub async fn wifi_stack(
     wifi: WIFI,
     mut rng: Rng,
