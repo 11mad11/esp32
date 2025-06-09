@@ -1524,8 +1524,7 @@ dependencies = [
 [[package]]
 name = "mountain-mqtt"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb785d6658a2d915b893d6bbb2f0dedf44bc65f678049286b189ff41e40c5441"
+source = "git+https://github.com/11mad11/mountain-mqtt?branch=patch-will-from-release#fdb937b426dc6c67fed2e2d36ffb612d5d163253"
 dependencies = [
  "embedded-hal-async",
  "embedded-io",

@@ -1,3 +1,5 @@
+use core::str::FromStr;
+
 use alloc::boxed::Box;
 use embassy_futures::select::select;
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
@@ -6,8 +8,9 @@ use embassy_time::Timer;
 use heapless::{String, Vec};
 use mountain_mqtt::{
     client::{Client, ClientError, Delay, Message},
-    packets::connect::Connect,
+    packets::connect::{Connect, Will},
 };
+use serde::Serialize;
 
 use crate::{
     iot_topic, led,
@@ -15,6 +18,12 @@ use crate::{
     output,
     tcp::tcp_send,
 };
+
+#[derive(Debug, Serialize)]
+struct ConnectionPacket {
+    msg: String<64>,
+    last_will: bool,
+}
 
 pub const MQTT_PACKET_LEN: usize = 1024;
 
@@ -93,6 +102,14 @@ pub async fn mqtt_task(stack: Stack<'static>) {
         };
 
         {
+            let mut payload = [0u8; 256];
+            let payload_len = serde_json_core::to_slice(
+                &ConnectionPacket {
+                    last_will: true,
+                    msg: heapless::String::from_str("me dead").unwrap(),
+                },
+                &mut payload,
+            ).unwrap();
             let result_connection = client
                 .connect(Connect::<0>::new(
                     60,
@@ -100,7 +117,15 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                     Some(&[0]),
                     env!("ID"),
                     true,
-                    None,
+                    Some(
+                        Will {
+                            qos: mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                            retain: false,
+                            topic_name: concat!(iot_topic!(), "/connection"),
+                            payload: &payload[..payload_len],
+                            properties: Vec::new(),
+                        },
+                    ),
                     Vec::new(),
                 ))
                 .await;
@@ -110,6 +135,27 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                 led::state(led::LedState::MQTT(false));
                 continue 'main;
             }
+        }
+        
+        {
+            let mut payload = [0u8; 256];
+            let payload_len = serde_json_core::to_slice(
+                &ConnectionPacket {
+                    last_will: false,
+                    msg: heapless::String::from_str("me alive").unwrap(),
+                },
+                &mut payload,
+            ).unwrap();
+
+            client
+            .publish(
+                concat!(iot_topic!(), "/connection"),
+                &payload[..payload_len],
+                mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                false,
+            )
+            .await
+            .ok();
         }
 
         {
@@ -126,33 +172,46 @@ pub async fn mqtt_task(stack: Stack<'static>) {
         }
 
         {
-            let ctrl = client
+            let result = client
                 .subscribe(
                     concat!(iot_topic!(), "/ctrl"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
-            if let Err(e) = ctrl {
+            if let Err(e) = result {
                 defmt::error!("{:?}", defmt::Debug2Format(&e));
                 led::state(led::LedState::RPCError);
             }
-            let ctrl = client
+
+            let result = client
                 .subscribe(
                     concat!(iot_topic!(), "/ota/start"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
-            if let Err(e) = ctrl {
+            if let Err(e) = result {
                 defmt::error!("{:?}", defmt::Debug2Format(&e));
                 led::state(led::LedState::RPCError);
             }
-            let ctrl = client
+
+            let result = client
                 .subscribe(
                     concat!(iot_topic!(), "/ota/data"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
                 .await;
-            if let Err(e) = ctrl {
+            if let Err(e) = result {
+                defmt::error!("{:?}", defmt::Debug2Format(&e));
+                led::state(led::LedState::RPCError);
+            }
+
+            let result = client
+                .subscribe(
+                    concat!(iot_topic!(), "/echo"),
+                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                )
+                .await;
+            if let Err(e) = result {
                 defmt::error!("{:?}", defmt::Debug2Format(&e));
                 led::state(led::LedState::RPCError);
             }
@@ -230,6 +289,9 @@ pub fn message_handler(msg: Message) -> Result<(), ClientError> {
         }
         concat!(iot_topic!(), "/rpc/tcp") => {
             tcp_send(msg.payload);
+        }
+        concat!(iot_topic!(), "/echo") => {
+            mqtt_send(msg.payload, "/echo");
         }
         _ => (),
     }
