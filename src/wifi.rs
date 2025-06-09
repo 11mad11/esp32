@@ -182,6 +182,8 @@ async fn connection(mut controller: WifiController<'static>) {
                     }
                     Err(e) => {
                         println!("Failed to connect to wifi: {:?}", e);
+                        embassy_time::Timer::after_secs(2).await;
+                        WIFI_CRL.send(WifiCmd::ConnectSta).await;
                     }
                 }
             }
