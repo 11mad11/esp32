@@ -31,6 +31,7 @@ pub async fn output_task(mut pins: [Output<'static>; NUM_OUT]) {
                     if let Some(seconds) = value {
                         if seconds == 0u8 {
                             timers[i] = None;
+                            pins[i].set_high();
                         } else if seconds == 255u8 {
                             timers[i] = Some(Instant::MAX);
                             pins[i].set_low();
