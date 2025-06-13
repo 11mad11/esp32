@@ -1,7 +1,7 @@
 use core::str::FromStr;
 
 use alloc::boxed::Box;
-use embassy_futures::select::select;
+use embassy_futures::select::{select, select3};
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Timer;
@@ -229,8 +229,8 @@ pub async fn mqtt_task(stack: Stack<'static>) {
             .ok();
 
         loop {
-            match select(WRITE.receive(), client.poll(true)).await {
-                embassy_futures::select::Either::First(packet) => {
+            match select3(WRITE.receive(), client.poll(true), Timer::after_secs(5)).await {
+                embassy_futures::select::Either3::First(packet) => {
                     let ascii = packet.buf[..packet.len].as_ascii();
                     if let Some(ascii) = ascii {
                         defmt::debug!("{}", defmt::Debug2Format(ascii));
@@ -250,15 +250,22 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                         continue 'main;
                     }
                 }
-                embassy_futures::select::Either::Second(Ok(true)) => {}
-                embassy_futures::select::Either::Second(Ok(false)) => {
+                embassy_futures::select::Either3::Second(Ok(true)) => {}
+                embassy_futures::select::Either3::Second(Ok(false)) => {
                     Timer::after_millis(10).await;
                 }
-                embassy_futures::select::Either::Second(Err(e)) => {
+                embassy_futures::select::Either3::Second(Err(e)) => {
                     defmt::error!("poll mqtt {:?}", defmt::Debug2Format(&e));
                     led::state(led::LedState::MQTT(false));
                     Timer::after_millis(500).await;
                     continue 'main;
+                },
+                embassy_futures::select::Either3::Third(_) =>{
+                    let result = client.send_ping().await;
+                    if let Err(e) = result {
+                        defmt::error!("{:?}", defmt::Debug2Format(&e));
+                        led::state(led::LedState::RPCError);
+                    }
                 }
             };
         }
