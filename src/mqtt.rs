@@ -1,7 +1,7 @@
 use core::str::FromStr;
 
 use alloc::boxed::Box;
-use embassy_futures::select::{select, select3};
+use embassy_futures::select::select3;
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Timer;
@@ -109,7 +109,8 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                     msg: heapless::String::from_str("me dead").unwrap(),
                 },
                 &mut payload,
-            ).unwrap();
+            )
+            .unwrap();
             let result_connection = client
                 .connect(Connect::<0>::new(
                     60,
@@ -117,15 +118,13 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                     Some(&[0]),
                     env!("ID"),
                     true,
-                    Some(
-                        Will {
-                            qos: mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
-                            retain: false,
-                            topic_name: concat!(iot_topic!(), "/connection"),
-                            payload: &payload[..payload_len],
-                            properties: Vec::new(),
-                        },
-                    ),
+                    Some(Will {
+                        qos: mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                        retain: false,
+                        topic_name: concat!(iot_topic!(), "/connection"),
+                        payload: &payload[..payload_len],
+                        properties: Vec::new(),
+                    }),
                     Vec::new(),
                 ))
                 .await;
@@ -136,7 +135,7 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                 continue 'main;
             }
         }
-        
+
         {
             let mut payload = [0u8; 256];
             let payload_len = serde_json_core::to_slice(
@@ -145,17 +144,18 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                     msg: heapless::String::from_str("me alive").unwrap(),
                 },
                 &mut payload,
-            ).unwrap();
+            )
+            .unwrap();
 
             client
-            .publish(
-                concat!(iot_topic!(), "/connection"),
-                &payload[..payload_len],
-                mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
-                false,
-            )
-            .await
-            .ok();
+                .publish(
+                    concat!(iot_topic!(), "/connection"),
+                    &payload[..payload_len],
+                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                    false,
+                )
+                .await
+                .ok();
         }
 
         {
@@ -259,8 +259,8 @@ pub async fn mqtt_task(stack: Stack<'static>) {
                     led::state(led::LedState::MQTT(false));
                     Timer::after_millis(500).await;
                     continue 'main;
-                },
-                embassy_futures::select::Either3::Third(_) =>{
+                }
+                embassy_futures::select::Either3::Third(_) => {
                     let result = client.send_ping().await;
                     if let Err(e) = result {
                         defmt::error!("{:?}", defmt::Debug2Format(&e));

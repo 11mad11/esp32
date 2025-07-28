@@ -18,3 +18,4 @@ target/
 
 .env
 output.map
+devices
