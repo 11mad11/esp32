@@ -1,4 +1,4 @@
-use crate::mk_static;
+use crate::{memory::MEM, mk_static};
 use defmt::{error, println, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_net::{Runner, Stack, StackResources};
@@ -12,7 +12,8 @@ use esp_wifi::{
     wifi::{ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent},
     EspWifiController,
 };
-use heapless::String;
+
+pub const WIFI_CLIENT_CONFIG_KEY: &[u8] = b"wifi_client_config";
 
 pub async fn wifi_stack(
     wifi: WIFI,
@@ -36,11 +37,37 @@ pub async fn wifi_stack(
         (rng.random() as u64) << 32 | rng.random() as u64,
     );
 
-    let client_config = Configuration::Client(ClientConfiguration {
-        ssid: String::try_from(option_env!("SSID").unwrap_or("")).unwrap(),
-        password: String::try_from(option_env!("WPWD").unwrap_or("")).unwrap(),
-        ..Default::default()
+    let client_config = Configuration::Client({
+        let mem_guard = MEM.lock().await;
+        let mem = mem_guard.read_transaction().await;
+
+        let mut value = [0u8; 128];
+        let key = WIFI_CLIENT_CONFIG_KEY;
+        match mem.read(key, &mut value).await {
+            Ok(size) => {
+                match postcard::from_bytes(&value[..size]) {
+                    Ok(config) => config,
+                    Err(_) => {
+                        defmt::warn!("Failed to deserialize wifi config, using default");
+                        ClientConfiguration {
+                            ssid: "iot".try_into().unwrap(),
+                            auth_method: esp_wifi::wifi::AuthMethod::None,
+                            ..Default::default()
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                defmt::warn!("Failed to read wifi config from memory, using default");
+                ClientConfiguration {
+                    ssid: "iot".try_into().unwrap(),
+                    auth_method: esp_wifi::wifi::AuthMethod::None,
+                    ..Default::default()
+                }
+            }
+        }
     });
+    println!("Using wifi configuration: {:?}", Debug2Format(&client_config));
     wifi_controller.set_configuration(&client_config).unwrap();
 
     spawner

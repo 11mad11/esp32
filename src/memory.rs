@@ -21,7 +21,7 @@ impl Flash for Esp32Flash {
     type Error = esp_storage::FlashStorageError;
 
     fn page_count(&self) -> usize {
-        self.inner.capacity() / self.page_size()
+        0x4000 / self.page_size()
     }
 
     async fn erase(&mut self, page_id: PageID) -> Result<(), Self::Error> {
@@ -64,8 +64,9 @@ pub static MEM: Mutex<
     let mut config = ekv::Config::default();
     config.random_seed = {
         let cycle_count = get_cycle_count();
-        (cycle_count as usize ^ 0xDEADBEEF) as u32
+        cycle_count ^ 0xDEADBEEF
     };
+    esp_println::println!("config.random_seed: {}", config.random_seed);
     
     Database::<_, CriticalSectionRawMutex>::new(flash, config)
 }));

@@ -110,10 +110,10 @@ async fn main(spawner: Spawner) {
     {
         let mem = MEM.try_lock().unwrap();
         if let Err(_) = mem.mount().await {
-            info!("Memory formated");
             mem.format()
                 .await
-                .unwrap_or_else(|err| error!("{}", Debug2Format(&err)))
+                .unwrap_or_else(|err| error!("{}", Debug2Format(&err)));
+            info!("Memory formated");
         }
         info!("Memory initialized");
     }
