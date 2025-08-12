@@ -17,7 +17,7 @@ impl Esp32Flash {
     }
 }
 
-impl ekv::flash::Flash for Esp32Flash {
+impl Flash for Esp32Flash {
     type Error = esp_storage::FlashStorageError;
 
     fn page_count(&self) -> usize {

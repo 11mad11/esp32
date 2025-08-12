@@ -28,7 +28,6 @@ use uart::uart_task;
 use {esp_backtrace as _, esp_println as _};
 
 extern crate alloc;
-mod dhcp;
 mod ethernet;
 mod led;
 mod memory;

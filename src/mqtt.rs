@@ -17,7 +17,7 @@ use crate::{
     ota::{ota_start, ota_write},
     output,
     tcp::tcp_send,
-    vec_in_myheap, MYHEAP,
+    vec_in_myheap,
 };
 
 #[derive(Debug, Serialize)]
