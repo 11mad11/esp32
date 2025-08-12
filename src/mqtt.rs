@@ -17,6 +17,7 @@ use crate::{
     ota::{ota_start, ota_write},
     output,
     tcp::tcp_send,
+    vec_in_myheap, MYHEAP,
 };
 
 #[derive(Debug, Serialize)]
@@ -59,9 +60,14 @@ pub fn mqtt_send(buf: &[u8], topic: &str) {
 
 #[embassy_executor::task]
 pub async fn mqtt_task(stack: Stack<'static>) {
-    let rx_buffer = &mut *Box::new([0u8; 1024]);
-    let tx_buffer = &mut *Box::new([0u8; 1024]);
-    let mqtt_buffer = &mut *Box::new([0u8; 2048]);
+    let mut rx_vec = vec_in_myheap!(0u8; 1024);
+    let rx_buffer: &mut [u8] = rx_vec.as_mut_slice();
+
+    let mut tx_vec = vec_in_myheap!(0u8; 1024);
+    let tx_buffer: &mut [u8] = tx_vec.as_mut_slice();
+
+    let mut mqtt_vec = vec_in_myheap!(0u8; 1024);
+    let mqtt_buffer: &mut [u8] = mqtt_vec.as_mut_slice();
 
     'main: loop {
         let mut client = {

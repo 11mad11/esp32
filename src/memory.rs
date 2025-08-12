@@ -1,80 +1,71 @@
-use core::mem::MaybeUninit;
-use core::ops::Deref;
-use core::{cell::LazyCell, ops::DerefMut};
-use defmt::println;
+use core::cell::LazyCell;
+use ekv::flash::Flash;
+use ekv::flash::PageID;
+use ekv::Database;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-use embedded_storage::{ReadStorage, Storage};
-use esp_storage::{FlashStorage, FlashStorageError};
+use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use esp_hal::xtensa_lx::timer::get_cycle_count;
+use esp_storage::FlashStorage;
 
-const ADDR: u32 = 0x9000;
-const MAX_LEN: usize = 0x6000;
-const VERSION: u64 = 0x1;
-
-#[repr(C)]
-pub struct InnerMem {
-    pub version: u64,
-    pub ssid: heapless::String<32>,
-    pub password: heapless::String<64>,
+pub struct Esp32Flash {
+    pub inner: FlashStorage,
 }
 
-pub struct Mem {
-    flash: FlashStorage,
-    inner_mem: InnerMem,
-}
-
-impl Mem {
-    #[allow(dead_code)]
-    pub fn save(&mut self) -> Result<(), FlashStorageError> {
-        let data = unsafe {
-            let data_ptr = &self.inner_mem as *const InnerMem as *const u8;
-            let data_slice =
-                core::slice::from_raw_parts(data_ptr, core::mem::size_of::<InnerMem>());
-            data_slice
-        };
-        self.flash.write(ADDR, data)
+impl Esp32Flash {
+    fn page_size(&self) -> usize {
+        FlashStorage::SECTOR_SIZE as usize
     }
 }
 
-impl Deref for Mem {
-    type Target = InnerMem;
+impl ekv::flash::Flash for Esp32Flash {
+    type Error = esp_storage::FlashStorageError;
 
-    fn deref(&self) -> &Self::Target {
-        &self.inner_mem
+    fn page_count(&self) -> usize {
+        self.inner.capacity() / self.page_size()
+    }
+
+    async fn erase(&mut self, page_id: PageID) -> Result<(), Self::Error> {
+        let page = page_id.index();
+        let from = (page * self.page_size()) as u32;
+        let to = from + self.page_size() as u32;
+        self.inner.erase(from, to)
+    }
+
+    async fn read(
+        &mut self,
+        page_id: PageID,
+        offset: usize,
+        data: &mut [u8],
+    ) -> Result<(), Self::Error> {
+        let page = page_id.index();
+        let abs_offset = (page * self.page_size() + offset) as u32;
+        self.inner.read(abs_offset, data)
+    }
+
+    async fn write(
+        &mut self,
+        page_id: PageID,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<(), Self::Error> {
+        let page = page_id.index();
+        let abs_offset = (page * self.page_size() + offset) as u32;
+        self.inner.write(abs_offset, data)
     }
 }
 
-impl DerefMut for Mem {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner_mem
-    }
-}
-
-pub static MEM: Mutex<CriticalSectionRawMutex, LazyCell<Mem>> = Mutex::new(LazyCell::new(|| {
-    let mut flash = FlashStorage::new();
-
-    println!("Mem size = {}", core::mem::size_of::<InnerMem>());
-
-    if MAX_LEN <= core::mem::size_of::<InnerMem>() {
-        panic!("Mem struct is too big for reserved space")
-    }
-
-    let mut uninit_inner_mem = MaybeUninit::<InnerMem>::uninit();
-    let data: &mut [u8] = unsafe {
-        let ptr = uninit_inner_mem.as_mut_ptr() as *mut u8;
-        core::slice::from_raw_parts_mut(ptr, core::mem::size_of::<InnerMem>())
+pub static MEM: Mutex<
+    CriticalSectionRawMutex,
+    LazyCell<Database<Esp32Flash, CriticalSectionRawMutex>>,
+> = Mutex::new(LazyCell::new(|| {
+    let flash = Esp32Flash {
+        inner: FlashStorage::new(),
     };
-    flash.read(ADDR, data).unwrap();
-
-    let inner_mem = match u64::from_le_bytes(data[..8].try_into().unwrap()) {
-        VERSION => unsafe { uninit_inner_mem.assume_init() },
-        v => {
-            defmt::warn!("Version do not match any known version: {:x}", v);
-            InnerMem {
-                version: VERSION,
-                ssid: heapless::String::new(),
-                password: heapless::String::new(),
-            }
-        }
+    let mut config = ekv::Config::default();
+    config.random_seed = {
+        let cycle_count = get_cycle_count();
+        (cycle_count as usize ^ 0xDEADBEEF) as u32
     };
-    Mem { flash, inner_mem }
+    
+    Database::<_, CriticalSectionRawMutex>::new(flash, config)
 }));

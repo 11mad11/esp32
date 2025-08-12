@@ -22,7 +22,7 @@ embassy-net = { version = "0.6.0", features = [
 embedded-io = "0.6.1"
 embedded-io-async = "0.6.1"
 embassy-sync = "0.6.2"
-esp-alloc = "0.7.0"
+esp-alloc = { version = "0.7.0", features = ["nightly"] }
 esp-backtrace = { version = "0.15.1", features = [
   "defmt",
   "esp32",
@@ -33,6 +33,7 @@ esp-hal = { version = "1.0.0-beta.0", features = [
   "defmt",
   "esp32",
   "unstable",
+  "psram"
 ] }
 esp-println = { version = "0.13.0", features = ["defmt-espflash", "esp32"] }
 smoltcp = { version = "0.12.0", default-features = false, features = [
@@ -73,7 +74,7 @@ reqwless = { version = "0.12.0", default-features = false, features = [
   "embedded-tls",
 ] }
 picoserve = { version = "0.15.0", features = ["embassy"] }
-esp-storage = { version = "0.5.0", features = ["esp32"] }
+esp-storage = { version = "0.5.0", features = ["esp32", "low-level", "nor-flash"] }
 embedded-storage = "0.3.1"
 embassy-net-wiznet = "0.2.0"
 embassy-embedded-hal = "0.3.0"
@@ -90,6 +91,8 @@ serde = { version = "1.0.219", default-features = false }
 advmac = { version = "1.0.3", default-features = false }
 anyhow = { version = "1.0.97", default-features = false }
 esp-hal-ota = { version = "0.4.0", features = ["esp32"] }
+edge-dhcp = "0.6.0"
+ekv = "1.0.0"
 
 [build-dependencies]
 advmac = { version = "1.0.3", features = ["rand"] }

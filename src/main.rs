@@ -9,9 +9,10 @@
 use core::cell::LazyCell;
 
 use alloc::format;
-use defmt::{info, Debug2Format};
+use defmt::{error, info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer, WithTimeout};
+use esp_alloc::{EspHeap, HeapRegion, MemoryCapability};
 use esp_hal::gpio::{Output, Pin};
 use esp_hal::spi;
 use esp_hal::time::Rate;
@@ -27,6 +28,7 @@ use uart::uart_task;
 use {esp_backtrace as _, esp_println as _};
 
 extern crate alloc;
+mod dhcp;
 mod ethernet;
 mod led;
 mod memory;
@@ -63,6 +65,16 @@ const GIT_HASH: LazyCell<[u8; 7]> = LazyCell::new(|| {
     hash
 });
 
+pub static MYHEAP: EspHeap = EspHeap::empty();
+#[macro_export]
+macro_rules! vec_in_myheap {
+    ($value:expr; $len:expr) => {{
+        let mut v = alloc::vec::Vec::with_capacity_in($len, &crate::MYHEAP);
+        v.resize($len, $value);
+        v
+    }};
+}
+
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
     info!("initializing! Version: {:x}", *GIT_HASH);
@@ -70,21 +82,46 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
 
     esp_alloc::heap_allocator!(#[link_section = ".dram2_uninit"] size: 72 * 1024);
+    let (start, size) = esp_hal::psram::psram_raw_parts(&peripherals.PSRAM);
+    unsafe {
+        MYHEAP.add_region(HeapRegion::new(
+            start,
+            size,
+            MemoryCapability::External.into(),
+        ));
+    }
+
+    info!("Heap initialized!");
 
     let timer0 = TimerGroup::new(peripherals.TIMG1);
     esp_hal_embassy::init(timer0.timer0);
 
+    //entropy?
+    let mut rng = Rng::new(peripherals.RNG);
+    {
+        let count = (rng.random() % 100) + 50;
+        for _ in 0..count {
+            core::hint::spin_loop();
+        }
+        info!("Random delay complete: {} cycle count", count);
+    }
+
     info!("Embassy initialized!");
 
     {
-        info!("Memory version: {}", MEM.try_lock().unwrap().version)
+        let mem = MEM.try_lock().unwrap();
+        if let Err(_) = mem.mount().await {
+            info!("Memory formated");
+            mem.format()
+                .await
+                .unwrap_or_else(|err| error!("{}", Debug2Format(&err)))
+        }
+        info!("Memory initialized");
     }
 
     spawner
         .spawn(led::task(peripherals.GPIO2.degrade()))
         .unwrap();
-
-    let rng = Rng::new(peripherals.RNG);
 
     let mut stack = {
         let mut spi_cfg = spi::master::Config::default();

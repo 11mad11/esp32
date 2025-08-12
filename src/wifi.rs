@@ -1,7 +1,8 @@
-use core::net::Ipv4Addr;
-
-use crate::mk_static;
-use defmt::{error, println, warn, Debug2Format};
+use crate::{
+    dhcp::{DhcpServer, DHCP_IP},
+    mk_static, vec_in_myheap,
+};
+use defmt::{error, println, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_net::{
     udp::{PacketMetadata, UdpSocket},
@@ -22,6 +23,12 @@ use esp_wifi::{
     EspWifiController,
 };
 use heapless::String;
+use picoserve::{
+    response::Response,
+    routing::{get, get_service, post},
+    AppBuilder, AppRouter,
+};
+use smoltcp::wire::IpEndpoint;
 
 pub async fn wifi_stack(
     wifi: WIFI,
@@ -41,9 +48,9 @@ pub async fn wifi_stack(
     let (ap_stack, ap_runner) = embassy_net::new(
         wifi_interface.ap,
         embassy_net::Config::ipv4_static(StaticConfigV4 {
-            address: Ipv4Cidr::new(Ipv4Addr::new(192, 168, 2, 1), 24),
-            gateway: Some(Ipv4Addr::new(192, 168, 2, 1)),
-            dns_servers: Default::default(),
+            address: Ipv4Cidr::new(DHCP_IP, 24),
+            gateway: Some(DHCP_IP),
+            dns_servers: heapless::Vec::from_slice(&[DHCP_IP]).unwrap(),
         }),
         mk_static!(StackResources<3>, StackResources::<3>::new()),
         (rng.random() as u64) << 32 | rng.random() as u64,
@@ -83,7 +90,11 @@ pub async fn wifi_stack(
         .inspect_err(|e| error!("{:#?}", Debug2Format(e)))
         .unwrap();
     spawner
-        .spawn(run_dns(ap_stack, Ipv4Addr::new(192, 168, 2, 1)))
+        .spawn(run_dhcp_server(ap_stack))
+        .inspect_err(|e| error!("{:#?}", Debug2Format(e)))
+        .unwrap();
+    spawner
+        .spawn(run_http_server(ap_stack))
         .inspect_err(|e| error!("{:#?}", Debug2Format(e)))
         .unwrap();
 
@@ -108,45 +119,81 @@ async fn run_stack(mut runner: Runner<'static, WifiDevice<'static>>) {
 }
 
 #[embassy_executor::task]
-async fn run_dns(stack: Stack<'static>, addr: Ipv4Addr) {
-    let rx_meta: &mut [smoltcp::storage::PacketMetadata<embassy_net::udp::UdpMetadata>; 1] =
-        mk_static!([PacketMetadata; 1], [PacketMetadata::EMPTY; 1]);
-    let rx_buffer = mk_static!([u8; 1024], [0u8; 1024]);
-    let tx_meta = mk_static!([PacketMetadata; 1], [PacketMetadata::EMPTY; 1]);
-    let tx_buffer = mk_static!([u8; 1024], [0u8; 1024]);
+async fn run_dhcp_server(stack: Stack<'static>) {
+    let mut rx_buffer = vec_in_myheap![0u8; 1024];
+    let mut tx_buffer = vec_in_myheap![0u8; 1024];
+    let rx_meta = mk_static!([PacketMetadata; 16], [PacketMetadata::EMPTY; 16]);
+    let tx_meta = mk_static!([PacketMetadata; 16], [PacketMetadata::EMPTY; 16]);
+    let sock = UdpSocket::new(
+        stack,
+        rx_meta,
+        rx_buffer.as_mut_slice(),
+        tx_meta,
+        tx_buffer.as_mut_slice(),
+    );
 
-    let mut socket = UdpSocket::new(stack, rx_meta, rx_buffer, tx_meta, tx_buffer);
-    socket.bind(53).unwrap();
-    let mut footer = [
-        0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x04, 0x00, 0x00, 0x00,
-        0x00,
-    ];
-    footer[12..].copy_from_slice(&addr.octets());
-
-    let mut scratch = [0; 128];
-
-    loop {
-        match socket.recv_from(&mut scratch).await {
-            Ok((len, addr)) => {
-                if len > 100 {
-                    warn!("Received DNS request with invalid packet size: {}", len);
-                } else {
-                    scratch[2] |= 0x80;
-                    scratch[3] |= 0x80;
-                    scratch[7] = 0x01;
-                    let total = len + footer.len();
-                    scratch[len..total].copy_from_slice(&footer);
-                    socket
-                        .send_to(&scratch[0..total], addr)
-                        .await
-                        .unwrap_or_default();
-                }
-            }
-            Err(err) => {
-                error!("{:?}", Debug2Format(&err));
-            }
+    match DhcpServer::new(sock) {
+        Ok(mut server) => server.run().await,
+        Err(e) => {
+            error!("Failed to create DHCP server: {:?}", Debug2Format(&e));
+            return;
         }
+    };
+}
+
+#[derive(serde::Deserialize)]
+struct SSIDForm {
+    ssid: heapless::String<32>,
+    password: heapless::String<32>,
+}
+
+struct AppProps;
+
+impl AppBuilder for AppProps {
+    type PathRouter = impl picoserve::routing::PathRouter;
+
+    fn build_app(self) -> picoserve::Router<Self::PathRouter> {
+        picoserve::Router::new()
+        .route(
+            "/",
+            get_service(picoserve::response::File::html(include_str!("captive.html")))
+        )
+        .route("/connect", post(|picoserve::extract::Form(SSIDForm { ssid, password })| async move {
+            println!("Attempting to connect to SSID: {}, with Password: {}", ssid, password)
+        }))
     }
+}
+
+#[embassy_executor::task]
+async fn run_http_server(stack: Stack<'static>) {
+    let port = 80;
+    let mut tcp_rx_buffer = vec_in_myheap![0u8; 1024];
+    let mut tcp_tx_buffer = vec_in_myheap![0u8; 1024];
+    let mut http_buffer = vec_in_myheap![0u8; 2048];
+
+    let app = mk_static!(AppRouter<AppProps>, AppProps.build_app());
+
+    let config = mk_static!(
+        picoserve::Config<Duration>,
+        picoserve::Config::new(picoserve::Timeouts {
+            start_read_request: Some(Duration::from_secs(5)),
+            read_request: Some(Duration::from_secs(1)),
+            write: Some(Duration::from_secs(1)),
+        })
+        .keep_connection_alive()
+    );
+
+    picoserve::listen_and_serve(
+        0,
+        app,
+        config,
+        stack,
+        port,
+        tcp_rx_buffer.as_mut_slice(),
+        tcp_tx_buffer.as_mut_slice(),
+        http_buffer.as_mut_slice(),
+    )
+    .await
 }
 
 /////
