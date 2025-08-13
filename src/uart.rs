@@ -6,7 +6,7 @@ use embedded_io_async::Write;
 use esp_hal::{gpio::Output, system::software_reset, uart::Uart, Async};
 use heapless::Vec;
 
-use crate::{iot_topic, led, memory::MEM, mqtt, wifi::WIFI_CLIENT_CONFIG_KEY};
+use crate::{iot_topic, led, mqtt, wifi::WIFI_CLIENT_CONFIG_KEY};
 
 pub static UART_PACKET_LEN: usize = 128;
 
@@ -35,7 +35,7 @@ pub async fn uart_send(buf: &[u8]) {
 
 #[embassy_executor::task]
 pub async fn uart_task(mut uart: Uart<'static, Async>, mut de_pin: Output<'static>) {
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; 256];
     loop {
         match select(WRITE.receive(), uart.read_async(&mut buf)).await {
             embassy_futures::select::Either::First(pkt) => {
@@ -47,8 +47,8 @@ pub async fn uart_task(mut uart: Uart<'static, Async>, mut de_pin: Output<'stati
                 de_pin.set_low();
             }
             embassy_futures::select::Either::Second(Ok(len)) => {
-                defmt::info!("UART received: {:?}", &buf[..len]);
-                if buf.starts_with(b"WIFI:S:") {
+                defmt::info!("UART received: {:02x}", &buf[..len]);
+                /*if buf.starts_with(b"WIFI:S:") {
                     if let Ok(wifi_str) = core::str::from_utf8(&buf[7..len]) {
                         let parts: Vec<&str,20> = wifi_str.split(':').chain(wifi_str.split(';')).collect();
                         if parts.len() >= 7 && parts[1] == "S" && parts[3] == "T" && parts[5] == "P" {
@@ -89,7 +89,7 @@ pub async fn uart_task(mut uart: Uart<'static, Async>, mut de_pin: Output<'stati
                             }
                         }
                     }
-                }
+                }*/
                 mqtt::mqtt_send(&buf[..len], concat!(iot_topic!(), "/uart"));
             }
             embassy_futures::select::Either::Second(Err(e)) => {

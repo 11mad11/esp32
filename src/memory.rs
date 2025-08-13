@@ -7,6 +7,8 @@ use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_hal::xtensa_lx::timer::get_cycle_count;
 use esp_storage::FlashStorage;
 
+pub const FLASH_OFFSET: u32 = 0x9000;
+
 pub struct Esp32Flash {
     pub inner: FlashStorage,
 }
@@ -16,18 +18,23 @@ impl Esp32Flash {
         FlashStorage::SECTOR_SIZE as usize
     }
 }
-
 impl Flash for Esp32Flash {
     type Error = esp_storage::FlashStorageError;
 
     fn page_count(&self) -> usize {
-        0x4000 / self.page_size()
+        0x1000 / self.page_size()
     }
 
     async fn erase(&mut self, page_id: PageID) -> Result<(), Self::Error> {
         let page = page_id.index();
-        let from = (page * self.page_size()) as u32;
+        let from = (page * self.page_size()) as u32 + FLASH_OFFSET;
         let to = from + self.page_size() as u32;
+        esp_println::println!(
+            "[FLASH] erase: page_id={}, from=0x{:X}, to=0x{:X}",
+            page_id.index(),
+            from,
+            to
+        );
         self.inner.erase(from, to)
     }
 
@@ -38,7 +45,14 @@ impl Flash for Esp32Flash {
         data: &mut [u8],
     ) -> Result<(), Self::Error> {
         let page = page_id.index();
-        let abs_offset = (page * self.page_size() + offset) as u32;
+        let abs_offset = (page * self.page_size() + offset) as u32 + FLASH_OFFSET;
+        esp_println::println!(
+            "[FLASH] read: page_id={}, offset={}, abs_offset=0x{:X}, len={}",
+            page_id.index(),
+            offset,
+            abs_offset,
+            data.len()
+        );
         self.inner.read(abs_offset, data)
     }
 
@@ -49,7 +63,14 @@ impl Flash for Esp32Flash {
         data: &[u8],
     ) -> Result<(), Self::Error> {
         let page = page_id.index();
-        let abs_offset = (page * self.page_size() + offset) as u32;
+        let abs_offset = (page * self.page_size() + offset) as u32 + FLASH_OFFSET;
+        esp_println::println!(
+            "[FLASH] write: page_id={}, offset={}, abs_offset=0x{:X}, len={}",
+            page_id.index(),
+            offset,
+            abs_offset,
+            data.len()
+        );
         self.inner.write(abs_offset, data)
     }
 }
@@ -61,6 +82,7 @@ pub static MEM: Mutex<
     let flash = Esp32Flash {
         inner: FlashStorage::new(),
     };
+    
     let mut config = ekv::Config::default();
     config.random_seed = {
         let cycle_count = get_cycle_count();

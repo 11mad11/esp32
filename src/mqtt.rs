@@ -60,14 +60,9 @@ pub fn mqtt_send(buf: &[u8], topic: &str) {
 
 #[embassy_executor::task]
 pub async fn mqtt_task(stack: Stack<'static>) {
-    let mut rx_vec = vec_in_myheap!(0u8; 1024);
-    let rx_buffer: &mut [u8] = rx_vec.as_mut_slice();
-
-    let mut tx_vec = vec_in_myheap!(0u8; 1024);
-    let tx_buffer: &mut [u8] = tx_vec.as_mut_slice();
-
-    let mut mqtt_vec = vec_in_myheap!(0u8; 1024);
-    let mqtt_buffer: &mut [u8] = mqtt_vec.as_mut_slice();
+    let rx_buffer = &mut *Box::new([0u8; 1024]);
+    let tx_buffer = &mut *Box::new([0u8; 1024]);
+    let mqtt_buffer = &mut *Box::new([0u8; 2048]);
 
     'main: loop {
         let mut client = {
@@ -108,29 +103,14 @@ pub async fn mqtt_task(stack: Stack<'static>) {
         };
 
         {
-            let mut payload = [0u8; 256];
-            let payload_len = serde_json_core::to_slice(
-                &ConnectionPacket {
-                    last_will: true,
-                    msg: heapless::String::from_str("me dead").unwrap(),
-                },
-                &mut payload,
-            )
-            .unwrap();
             let result_connection = client
                 .connect(Connect::<0>::new(
                     60,
                     Some(env!("TOKEN")),
-                    Some(&[0]),
+                    Some(b"."),
                     env!("ID"),
                     true,
-                    Some(Will {
-                        qos: mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
-                        retain: false,
-                        topic_name: concat!(iot_topic!(), "/connection"),
-                        payload: &payload[..payload_len],
-                        properties: Vec::new(),
-                    }),
+                    None,
                     Vec::new(),
                 ))
                 .await;

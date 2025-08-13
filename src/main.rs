@@ -19,7 +19,7 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
 use ethernet::ethernet_task;
-use memory::MEM;
+//use memory::MEM;
 use mqtt::{mqtt_send, mqtt_task};
 use ota::ota_task;
 use output::output_task;
@@ -30,7 +30,7 @@ use {esp_backtrace as _, esp_println as _};
 extern crate alloc;
 mod ethernet;
 mod led;
-mod memory;
+//mod memory;
 mod mqtt;
 mod ota;
 mod output;
@@ -98,7 +98,7 @@ async fn main(spawner: Spawner) {
     //entropy?
     let mut rng = Rng::new(peripherals.RNG);
     {
-        let count = (rng.random() % 100) + 50;
+        let count = (rng.random() % 1000) + 50;
         for _ in 0..count {
             core::hint::spin_loop();
         }
@@ -107,20 +107,41 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
-    {
+    /*{
         let mem = MEM.try_lock().unwrap();
-        if let Err(_) = mem.mount().await {
+        if let Err(err) = mem.mount().await {
+            error!("Mount failed: {}", Debug2Format(&err));
             mem.format()
                 .await
                 .unwrap_or_else(|err| error!("{}", Debug2Format(&err)));
             info!("Memory formated");
         }
         info!("Memory initialized");
-    }
+    }*/
 
     spawner
         .spawn(led::task(peripherals.GPIO2.degrade()))
         .unwrap();
+
+    {
+        let config = esp_hal::uart::Config::default()
+            .with_rx(esp_hal::uart::RxConfig::default().with_fifo_full_threshold(64u16))
+            .with_baudrate(9600);
+
+        let mut uart0 = esp_hal::uart::Uart::new(peripherals.UART1, config)
+            .unwrap()
+            .with_tx(peripherals.GPIO26)
+            .with_rx(peripherals.GPIO25)
+            .into_async();
+        uart0.set_at_cmd(esp_hal::uart::AtCmdConfig::default().with_cmd_char(0x04));
+        let de_pin = Output::new(
+            peripherals.GPIO13,
+            esp_hal::gpio::Level::Low,
+            Default::default(),
+        );
+        spawner.spawn(uart_task(uart0, de_pin)).unwrap();
+        info!("Uart initialized");
+    }
 
     let mut stack = {
         let mut spi_cfg = spi::master::Config::default();
@@ -209,25 +230,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
     spawner.spawn(tcp_task(stack.clone())).unwrap();
     spawner.spawn(mqtt_task(stack.clone())).unwrap();
-    spawner.spawn(ota_task()).unwrap();
-
-    {
-        let config = esp_hal::uart::Config::default()
-            .with_rx(esp_hal::uart::RxConfig::default().with_fifo_full_threshold(64u16));
-
-        let mut uart0 = esp_hal::uart::Uart::new(peripherals.UART1, config)
-            .unwrap()
-            .with_tx(peripherals.GPIO26)
-            .with_rx(peripherals.GPIO25)
-            .into_async();
-        uart0.set_at_cmd(esp_hal::uart::AtCmdConfig::default().with_cmd_char(0x04));
-        let de_pin = Output::new(
-            peripherals.GPIO13,
-            esp_hal::gpio::Level::Low,
-            Default::default(),
-        );
-        spawner.spawn(uart_task(uart0, de_pin)).unwrap();
-    }
+    //spawner.spawn(ota_task()).unwrap();
 
     loop {
         Timer::after_secs(2).await;
