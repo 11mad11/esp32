@@ -8,6 +8,7 @@ use esp_hal::xtensa_lx::timer::get_cycle_count;
 use esp_storage::FlashStorage;
 
 pub const FLASH_OFFSET: u32 = 0x9000;
+pub const FLASH_SIZE: usize = 0x4000;
 
 pub struct Esp32Flash {
     pub inner: FlashStorage,
@@ -22,7 +23,7 @@ impl Flash for Esp32Flash {
     type Error = esp_storage::FlashStorageError;
 
     fn page_count(&self) -> usize {
-        0x1000 / self.page_size()
+        FLASH_SIZE / self.page_size()
     }
 
     async fn erase(&mut self, page_id: PageID) -> Result<(), Self::Error> {
@@ -47,11 +48,12 @@ impl Flash for Esp32Flash {
         let page = page_id.index();
         let abs_offset = (page * self.page_size() + offset) as u32 + FLASH_OFFSET;
         esp_println::println!(
-            "[FLASH] read: page_id={}, offset={}, abs_offset=0x{:X}, len={}",
+            "[FLASH] read: page_id={}, offset={}, abs_offset=0x{:X}, len={}, data={:02X?}",
             page_id.index(),
             offset,
             abs_offset,
-            data.len()
+            data.len(),
+            &data
         );
         self.inner.read(abs_offset, data)
     }
@@ -65,11 +67,12 @@ impl Flash for Esp32Flash {
         let page = page_id.index();
         let abs_offset = (page * self.page_size() + offset) as u32 + FLASH_OFFSET;
         esp_println::println!(
-            "[FLASH] write: page_id={}, offset={}, abs_offset=0x{:X}, len={}",
+            "[FLASH] write: page_id={}, offset={}, abs_offset=0x{:X}, len={}, data={:02X?}",
             page_id.index(),
             offset,
             abs_offset,
-            data.len()
+            data.len(),
+            &data
         );
         self.inner.write(abs_offset, data)
     }
