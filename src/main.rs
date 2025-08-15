@@ -98,15 +98,7 @@ async fn main(_spawner: Spawner) {
                 .await
                 .unwrap_or_else(|err| error!("{}", Debug2Format(&err)));
             info!("Memory formated");
-            {
-                let mut flash_guard = mem.lock_flash().await;
-                let mut bytes = [0u8; 16];
-                if let Ok(_) = flash_guard.inner.read(0, &mut bytes) {
-                    info!("Flash read at offset 0, len 16: {:x}", bytes);
-                } else {
-                    error!("Failed to read flash at offset 0");
-                }
-            }
+            
             if let Err(err) = mem.mount().await {
                 error!("Retry mount failed: {}", Debug2Format(&err));
             }

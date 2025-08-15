@@ -47,6 +47,7 @@ impl Flash for Esp32Flash {
     ) -> Result<(), Self::Error> {
         let page = page_id.index();
         let abs_offset = (page * self.page_size() + offset) as u32 + FLASH_OFFSET;
+        let len = self.inner.read(abs_offset, data);
         esp_println::println!(
             "[FLASH] read: page_id={}, offset={}, abs_offset=0x{:X}, len={}, data={:02X?}",
             page_id.index(),
@@ -55,7 +56,7 @@ impl Flash for Esp32Flash {
             data.len(),
             &data
         );
-        self.inner.read(abs_offset, data)
+        len
     }
 
     async fn write(
