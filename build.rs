@@ -32,35 +32,58 @@ fn main() {
         println!("cargo:rustc-env=GIT_HASH={}", hash);
     }
 
-    let mut env_file = {
+    {
         let env_path = std::env::current_dir()
             .expect("Failed to get current directory")
             .join(".env");
         if !env_path.exists() {
             fs::File::create(env_path.clone()).expect("Failed to create .env file");
         }
-        println!("cargo:rerun-if-changed={}",env_path.as_path().display());
+        println!("cargo:rerun-if-changed={}", env_path.as_path().display());
         dotenv().unwrap();
+    };
+
+    let device = std::env::var("DEVICE").expect("DEVICE environment variable must be set");
+    let mut device_env_file = {
+        let path = std::env::current_dir()
+            .expect("Failed to get current directory")
+            .join("devices")
+            .join(format!("{device}.cfg"));
+        if !path.exists() {
+            // Use .env.device as template if it exists
+            let template_path = std::env::current_dir()
+                .expect("Failed to get current directory")
+                .join(".env.device");
+            if template_path.exists() {
+                let contents = fs::read_to_string(&template_path)
+                    .expect("Failed to read .env.device template");
+                fs::write(&path, contents).expect("Failed to write device env file from template");
+            } else {
+                fs::File::create(path.clone()).expect("Failed to create device env file");
+            }
+        }
+        println!("cargo:rerun-if-changed={}", path.as_path().display());
+        dotenv::from_path(path.as_path()).unwrap();
         fs::OpenOptions::new()
             .write(true)
             .append(true)
-            .open(env_path)
-            .expect("Failed to open .env file")
+            .open(path)
+            .expect("Failed to open device env file")
     };
 
-    if let Ok(value) = std::env::var("TOKEN") {
-        println!("cargo:rustc-env=TOKEN={}", value);
-    }
-    if let Ok(value) = std::env::var("ID") {
-        println!("cargo:rustc-env=ID={}", value);
-    }
-    if let Ok(value) = std::env::var("ORG") {
-        println!("cargo:rustc-env=ORG={}", value);
-    }
+    let token = std::env::var("TOKEN").expect("TOKEN environment variable must be set");
+    println!("cargo:rustc-env=TOKEN={}", token);
+
+    let id = std::env::var("ID").expect("ID environment variable must be set");
+    println!("cargo:rustc-env=ID={}", id);
+
+    let org = std::env::var("ORG").expect("ORG environment variable must be set");
+    println!("cargo:rustc-env=ORG={}", org);
+    
     {
         let mac = std::env::var("MAC").ok().unwrap_or_else(|| {
             let mac = generate_random_mac();
-            writeln!(env_file, "\nMAC={}", mac).expect("Failed to write MAC to .env file");
+            writeln!(device_env_file, "\nMAC={}", mac).expect("Failed to write MAC to device env file");
             mac
         });
         println!("cargo:rustc-env=MAC={}", mac);
