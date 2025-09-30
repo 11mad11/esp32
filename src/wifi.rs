@@ -14,8 +14,6 @@ use esp_wifi::{
 };
 use heapless::String;
 
-pub const WIFI_CLIENT_CONFIG_KEY: &[u8] = b"wifi_client_config";
-
 pub async fn wifi_stack(
     wifi: WIFI,
     mut rng: Rng,
@@ -39,44 +37,10 @@ pub async fn wifi_stack(
     );
 
     let client_config = Configuration::Client({
-        if option_env!("SSID").is_some() {
-            ClientConfiguration {
-                ssid: String::try_from(option_env!("SSID").unwrap_or("")).unwrap(),
-                password: String::try_from(option_env!("WPWD").unwrap_or("")).unwrap(),
-                ..Default::default()
-            }
-        } else {
-            ClientConfiguration {
-                ssid: "iot".try_into().unwrap(),
-                auth_method: esp_wifi::wifi::AuthMethod::None,
-                ..Default::default()
-            }
-            /*let mem_guard = MEM.lock().await;
-            let mem = mem_guard.read_transaction().await;
-
-            let mut value = [0u8; 128];
-            let key = WIFI_CLIENT_CONFIG_KEY;
-            match mem.read(key, &mut value).await {
-                Ok(size) => match postcard::from_bytes(&value[..size]) {
-                    Ok(config) => config,
-                    Err(_) => {
-                        defmt::warn!("Failed to deserialize wifi config, using default");
-                        ClientConfiguration {
-                            ssid: "iot".try_into().unwrap(),
-                            auth_method: esp_wifi::wifi::AuthMethod::None,
-                            ..Default::default()
-                        }
-                    }
-                },
-                Err(_) => {
-                    defmt::warn!("Failed to read wifi config from memory, using default");
-                    ClientConfiguration {
-                        ssid: "iot".try_into().unwrap(),
-                        auth_method: esp_wifi::wifi::AuthMethod::None,
-                        ..Default::default()
-                    }
-                }
-            }*/
+        ClientConfiguration {
+            ssid: String::try_from(option_env!("SSID").unwrap_or("")).unwrap(),
+            password: String::try_from(option_env!("WPWD").unwrap_or("")).unwrap(),
+            ..Default::default()
         }
     });
     println!(

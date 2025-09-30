@@ -8,17 +8,11 @@ use embassy_time::Timer;
 use heapless::{String, Vec};
 use mountain_mqtt::{
     client::{Client, ClientError, Delay, Message},
-    packets::connect::{Connect, Will},
+    packets::connect::Connect,
 };
 use serde::Serialize;
 
-use crate::{
-    iot_topic, led,
-    ota::{ota_start, ota_write},
-    output,
-    tcp::tcp_send,
-    vec_in_myheap,
-};
+use crate::{iot_topic, led, output, tcp::tcp_send};
 
 #[derive(Debug, Serialize)]
 struct ConnectionPacket {
@@ -171,28 +165,6 @@ pub async fn mqtt_task(stack: Stack<'static>) {
 
             let result = client
                 .subscribe(
-                    concat!(iot_topic!(), "/ota/start"),
-                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
-                )
-                .await;
-            if let Err(e) = result {
-                defmt::error!("{:?}", defmt::Debug2Format(&e));
-                led::state(led::LedState::RPCError);
-            }
-
-            let result = client
-                .subscribe(
-                    concat!(iot_topic!(), "/ota/data"),
-                    mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
-                )
-                .await;
-            if let Err(e) = result {
-                defmt::error!("{:?}", defmt::Debug2Format(&e));
-                led::state(led::LedState::RPCError);
-            }
-
-            let result = client
-                .subscribe(
                     concat!(iot_topic!(), "/echo"),
                     mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
                 )
@@ -273,12 +245,6 @@ pub fn message_handler(msg: Message) -> Result<(), ClientError> {
                 }
             }
             output::output_state(bytes);
-        }
-        concat!(iot_topic!(), "/ota/start") => {
-            ota_start(msg.payload);
-        }
-        concat!(iot_topic!(), "/ota/data") => {
-            ota_write(Box::from(msg.payload));
         }
         concat!(iot_topic!(), "/rpc/tcp") => {
             tcp_send(msg.payload);

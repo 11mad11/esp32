@@ -9,7 +9,7 @@
 use core::cell::LazyCell;
 
 use alloc::format;
-use defmt::{error, info, Debug2Format};
+use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer, WithTimeout};
 use esp_alloc::{EspHeap, HeapRegion, MemoryCapability};
@@ -19,9 +19,7 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rng::Rng};
 use ethernet::ethernet_task;
-//use memory::MEM;
 use mqtt::{mqtt_send, mqtt_task};
-use ota::ota_task;
 use output::output_task;
 use tcp::tcp_task;
 use uart::uart_task;
@@ -30,9 +28,7 @@ use {esp_backtrace as _, esp_println as _};
 extern crate alloc;
 mod ethernet;
 mod led;
-//mod memory;
 mod mqtt;
-mod ota;
 mod output;
 mod tcp;
 mod uart;
@@ -107,20 +103,33 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
-    /*{
-        let mem = MEM.try_lock().unwrap();
-        if let Err(err) = mem.mount().await {
-            error!("Mount failed: {}", Debug2Format(&err));
-            mem.format()
-                .await
-                .unwrap_or_else(|err| error!("{}", Debug2Format(&err)));
-            info!("Memory formated");
-        }
-        info!("Memory initialized");
-    }*/
-
     spawner
         .spawn(led::task(peripherals.GPIO2.degrade()))
+        .unwrap();
+
+    spawner
+        .spawn(output_task([
+            Output::new(
+                peripherals.GPIO14,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+            Output::new(
+                peripherals.GPIO17,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+            Output::new(
+                peripherals.GPIO16,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+            Output::new(
+                peripherals.GPIO27,
+                esp_hal::gpio::Level::High,
+                Default::default(),
+            ),
+        ]))
         .unwrap();
 
     {
@@ -204,30 +213,6 @@ async fn main(spawner: Spawner) {
         concat!(iot_topic!(), "/logs"),
     );
 
-    spawner
-        .spawn(output_task([
-            Output::new(
-                peripherals.GPIO14,
-                esp_hal::gpio::Level::High,
-                Default::default(),
-            ),
-            Output::new(
-                peripherals.GPIO17,
-                esp_hal::gpio::Level::High,
-                Default::default(),
-            ),
-            Output::new(
-                peripherals.GPIO16,
-                esp_hal::gpio::Level::High,
-                Default::default(),
-            ),
-            Output::new(
-                peripherals.GPIO27,
-                esp_hal::gpio::Level::High,
-                Default::default(),
-            ),
-        ]))
-        .unwrap();
     spawner.spawn(tcp_task(stack.clone())).unwrap();
     spawner.spawn(mqtt_task(stack.clone())).unwrap();
     //spawner.spawn(ota_task()).unwrap();
