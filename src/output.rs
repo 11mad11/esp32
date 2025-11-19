@@ -7,11 +7,8 @@ type Packet = [Option<u8>; NUM_OUT];
 
 static WRITE: Channel<CriticalSectionRawMutex, Packet, 2> = Channel::new();
 
-pub fn output_state(relays: Packet) {
-    WRITE
-        .try_send(relays)
-        .inspect_err(|_e| defmt::error!("output queue full"))
-        .ok();
+pub async fn output_state(relays: Packet) {
+    WRITE.send(relays).await;
 }
 
 #[embassy_executor::task]

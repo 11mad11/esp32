@@ -15,8 +15,8 @@ use embassy_time::{Duration, Timer, WithTimeout};
 use esp_alloc::{EspHeap, HeapRegion, MemoryCapability};
 use esp_hal::gpio::{Output, Pin};
 use esp_hal::spi;
-use esp_hal::time::Rate;
-use esp_hal::timer::timg::TimerGroup;
+use esp_hal::time::{Duration as HalDuration, Rate};
+use esp_hal::timer::timg::{MwdtStage, TimerGroup};
 use esp_hal::{clock::CpuClock, rng::Rng};
 use ethernet::ethernet_task;
 use mqtt::{mqtt_send, mqtt_task};
@@ -60,6 +60,8 @@ const GIT_HASH: LazyCell<[u8; 7]> = LazyCell::new(|| {
     hash
 });
 
+const WATCHDOG_TIMEOUT_SECS: u64 = 30;
+
 pub static MYHEAP: EspHeap = EspHeap::empty();
 #[macro_export]
 macro_rules! vec_in_myheap {
@@ -90,6 +92,16 @@ async fn main(spawner: Spawner) {
 
     let timer0 = TimerGroup::new(peripherals.TIMG1);
     esp_hal_embassy::init(timer0.timer0);
+
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let mut watchdog = timg0.wdt;
+    watchdog.set_timeout(
+        MwdtStage::Stage0,
+        HalDuration::from_secs(WATCHDOG_TIMEOUT_SECS),
+    );
+    watchdog.enable();
+    watchdog.feed();
+    let mut wifi_timer = Some(timg0.timer0);
 
     //entropy?
     let mut rng = Rng::new(peripherals.RNG);
@@ -171,7 +183,7 @@ async fn main(spawner: Spawner) {
     }
     .await;
 
-    led::state(led::LedState::Ok);
+    led::state(led::LedState::Ok).await;
 
     let wifi = stack
         .wait_link_up()
@@ -182,17 +194,19 @@ async fn main(spawner: Spawner) {
         stack = wifi::wifi_stack(
             peripherals.WIFI,
             rng.clone(),
-            TimerGroup::new(peripherals.TIMG0).timer0,
+            wifi_timer.take().expect("wifi timer already taken"),
             peripherals.RADIO_CLK,
             spawner.clone(),
         )
         .await;
     }
+    watchdog.feed();
 
     defmt::info!("Waiting link...");
     stack.wait_link_up().await;
+    watchdog.feed();
 
-    led::state(led::LedState::Ok);
+    led::state(led::LedState::Ok).await;
 
     defmt::info!(
         "Waiting config... {:?}",
@@ -200,8 +214,9 @@ async fn main(spawner: Spawner) {
     );
     stack.wait_config_up().await;
     defmt::info!("{:?}", defmt::Debug2Format(&stack.config_v4()));
+    watchdog.feed();
 
-    led::state(led::LedState::Ok);
+    led::state(led::LedState::Ok).await;
     mqtt_send(
         format!(
             "Link & config up: {:?} {:?} {:?}",
@@ -211,7 +226,8 @@ async fn main(spawner: Spawner) {
         )
         .as_bytes(),
         concat!(iot_topic!(), "/logs"),
-    );
+    )
+    .await;
 
     spawner.spawn(tcp_task(stack.clone())).unwrap();
     spawner.spawn(mqtt_task(stack.clone())).unwrap();
@@ -219,6 +235,7 @@ async fn main(spawner: Spawner) {
 
     loop {
         Timer::after_secs(2).await;
+        watchdog.feed();
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-beta.0/examples/src/bin

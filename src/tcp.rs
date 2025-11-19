@@ -1,8 +1,9 @@
-use alloc::format;
+use alloc::{format, vec::Vec};
 use embassy_futures::select::{self, select};
 use embassy_net::{tcp::TcpSocket, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
+use esp_alloc::EspHeap;
 
 use crate::{
     iot_topic, led,
@@ -11,38 +12,39 @@ use crate::{
 
 pub static TCP_PACKET_LEN: usize = 64;
 
+type HeapVec = Vec<u8, &'static EspHeap>;
+
 struct Packet {
-    buf: [u8; TCP_PACKET_LEN],
+    buf: HeapVec,
     len: usize,
 }
 
 static WRITE: Channel<CriticalSectionRawMutex, Packet, 2> = Channel::new();
 
-pub fn tcp_send(buf: &[u8]) {
-    let mut stack_buf = [0u8; TCP_PACKET_LEN];
+pub async fn tcp_send(buf: &[u8]) {
     let len = buf.len();
     if len >= TCP_PACKET_LEN {
         panic!("Packet too big");
     }
-    stack_buf[..len].copy_from_slice(&buf[..len]);
+    let mut heap_buf = crate::vec_in_myheap!(0u8; len);
+    heap_buf.copy_from_slice(&buf[..len]);
     WRITE
-        .try_send(Packet {
-            buf: stack_buf,
+        .send(Packet {
+            buf: heap_buf,
             len,
         })
-        .inspect_err(|_e| defmt::error!("tcp queue full"))
-        .ok();
+        .await;
 }
 
 #[embassy_executor::task]
 pub async fn tcp_task(stack: Stack<'static>) {
-    loop {
-        let mut rx_buffer = [0u8; 1024];
-        let mut tx_buffer = [0u8; 1024];
+    let mut rx_buffer = crate::vec_in_myheap!(0u8; 1024);
+    let mut tx_buffer = crate::vec_in_myheap!(0u8; 1024);
 
+    loop {
         loop {
             let mut socket = {
-                let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+                let mut socket = TcpSocket::new(stack, &mut rx_buffer[..], &mut tx_buffer[..]);
                 socket.set_timeout(Some(Duration::from_secs(10)));
                 if let Err(e) = socket.accept(10001).await {
                     defmt::info!("accept error: {:?}", defmt::Debug2Format(&e));
@@ -53,14 +55,15 @@ pub async fn tcp_task(stack: Stack<'static>) {
                     "accepted connection from {:?}",
                     defmt::Debug2Format(&socket.remote_endpoint())
                 );
-                led::state(led::LedState::Ok);
+                led::state(led::LedState::Ok).await;
                 socket
             };
 
             mqtt_send(
                 format!("Accepted tcp connection: {:?}", socket.remote_endpoint()).as_bytes(),
                 concat!(iot_topic!(), "/logs"),
-            );
+            )
+            .await;
 
             loop_s(&mut socket).await;
 
@@ -72,7 +75,7 @@ pub async fn tcp_task(stack: Stack<'static>) {
 }
 
 async fn loop_s<'a>(socket: &mut TcpSocket<'a>) {
-    let mut accum = [0u8; MQTT_PACKET_LEN];
+    let mut accum = crate::vec_in_myheap!(0u8; MQTT_PACKET_LEN);
     let mut index: usize = 0;
 
     loop {
@@ -104,7 +107,7 @@ async fn loop_s<'a>(socket: &mut TcpSocket<'a>) {
         match select(read_future, WRITE.receive()).await {
             select::Either::First(Err(_)) => break, //connection was reset
             select::Either::First(Ok(Some(_))) => {
-                mqtt_send(&accum[..index], concat!(iot_topic!(), "/data"));
+                mqtt_send(&accum[..index], concat!(iot_topic!(), "/data")).await;
                 index = 0;
             }
             select::Either::First(Ok(None)) => (), //receive part of the packet, wait for the rest

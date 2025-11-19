@@ -83,8 +83,6 @@ pub async fn task(led: AnyPin) {
     }
 }
 
-pub fn state(state: LedState) {
-    if let Err(err) = LED.try_send(state) {
-        defmt::error!("{:?}", defmt::Debug2Format(&err));
-    }
+pub async fn state(state: LedState) {
+    LED.send(state).await;
 }
