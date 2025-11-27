@@ -5,18 +5,17 @@ use embassy_net::Stack;
 use embassy_time::Timer;
 use heapless::Vec;
 use mountain_mqtt::{
-    client::Client,
+    client::{Client, ConnectionSettings},
     data::quality_of_service::QualityOfService,
-    packets::connect::{Connect, Will},
+    packets::connect::Will,
 };
 use serde::Serialize;
 
-use crate::{iot_topic, led, output, tcp};
+use crate::{iot_topic, led};
 
 use super::{
     connection::{alloc_buffers, setup_client, setup_subscriptions},
-    inbound::{drain_one, InboundAction},
-    publish::{mqtt_send, next_publish as next_publish_packet},
+    publish::next_publish as next_publish_packet,
 };
 
 const CONNECTION_PAYLOAD_SIZE: usize = 256;
@@ -55,22 +54,18 @@ pub async fn mqtt_task(stack: Stack<'static>) -> ! {
         )
         .unwrap();
 
+        let connection_settings = ConnectionSettings::unauthenticated(env!("ID"));
         let result_connection = client
-            .connect(Connect::<0>::new(
-                60,
-                Some(env!("TOKEN")),
-                Some(b"."),
-                env!("ID"),
-                true,
-                Some(Will {
-                    qos: QualityOfService::QoS0,
-                    retain: false,
-                    topic_name: concat!(iot_topic!(), "/connection"),
-                    payload: &will_payload[..will_payload_len],
-                    properties: Vec::new(),
-                }),
-                Vec::new(),
-            ))
+            .connect_with_will::<0>(
+                &connection_settings,
+                Some(Will::new(
+                    QualityOfService::Qos0,
+                    false,
+                    concat!(iot_topic!(), "/connection"),
+                    &will_payload[..will_payload_len],
+                    Vec::new(),
+                )),
+            )
             .await;
         if let Err(e) = result_connection {
             defmt::error!("connect mqtt {:?}", defmt::Debug2Format(&e));
@@ -92,21 +87,19 @@ pub async fn mqtt_task(stack: Stack<'static>) -> ! {
             .publish(
                 concat!(iot_topic!(), "/connection"),
                 &payload[..payload_len],
-                QualityOfService::QoS0,
+                QualityOfService::Qos0,
                 false,
             )
             .await
             .ok();
 
         setup_subscriptions(&mut client).await;
-        process_inbound_actions().await;
-
         led::state(led::LedState::MQTT(true)).await;
         client
             .publish(
                 concat!(iot_topic!(), "/logs"),
                 b"Connected!",
-                QualityOfService::QoS0,
+                QualityOfService::Qos0,
                 false,
             )
             .await
@@ -128,7 +121,7 @@ pub async fn mqtt_task(stack: Stack<'static>) -> ! {
                         .publish(
                             &packet.topic,
                             &packet.buf[..packet.len],
-                            QualityOfService::QoS0,
+                            QualityOfService::Qos0,
                             false,
                         )
                         .await;
@@ -156,24 +149,6 @@ pub async fn mqtt_task(stack: Stack<'static>) -> ! {
                     }
                 }
             };
-
-            process_inbound_actions().await;
-        }
-    }
-}
-
-async fn process_inbound_actions() {
-    while let Some(action) = drain_one() {
-        match action {
-            InboundAction::Outputs(bytes) => {
-                output::output_state(bytes).await;
-            }
-            InboundAction::Tcp(payload) => {
-                tcp::tcp_send(&payload).await;
-            }
-            InboundAction::Echo(payload) => {
-                mqtt_send(&payload, "/echo").await;
-            }
         }
     }
 }

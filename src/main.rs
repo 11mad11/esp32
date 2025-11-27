@@ -234,7 +234,14 @@ async fn main(spawner: Spawner) {
     //spawner.spawn(ota_task()).unwrap();
 
     loop {
-        Timer::after_secs(2).await;
+
+        // Print heap stats
+        info!(
+            "Heap usage: {:?}",
+            Debug2Format(&MYHEAP.stats())
+        );
+
+        Timer::after_secs(10).await;
         watchdog.feed();
     }
 

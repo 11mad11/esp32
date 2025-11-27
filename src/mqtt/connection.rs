@@ -2,24 +2,25 @@ use core::convert::TryInto;
 
 use embassy_net::{tcp::TcpSocket, IpEndpoint, Stack};
 use embassy_time::Timer;
-use mountain_mqtt::client::{Client, ClientError, Delay, Message};
+use mountain_mqtt::client::{Client, ClientNoQueue, Delay};
 
 use crate::{iot_topic, led};
 
-use super::inbound::message_handler;
+use super::inbound::{InboundEventHandler, MAX_APPLICATION_PROPERTIES};
 
-pub const RX_BUFFER_SIZE: usize = 1024;
-pub const TX_BUFFER_SIZE: usize = 1024;
-pub const MQTT_BUFFER_SIZE: usize = 2048;
+pub const RX_BUFFER_SIZE: usize = 4096;
+pub const TX_BUFFER_SIZE: usize = 4096;
+pub const MQTT_BUFFER_SIZE: usize = 4096;
 pub const CLIENT_TIMEOUT_MS: u32 = 5000;
 const DNS_HOST: &str = "ssca.desrochers.space";
 const MQTT_PORT: u16 = 1883;
 
-pub type ClientType<'a> = mountain_mqtt::client::ClientNoQueue<
+pub type ClientType<'a> = ClientNoQueue<
     'a,
     mountain_mqtt::embedded_io_async::ConnectionEmbedded<TcpSocket<'a>>,
     MyDelay,
-    fn(Message) -> Result<(), ClientError>,
+    InboundEventHandler,
+    MAX_APPLICATION_PROPERTIES,
 >;
 
 pub(super) async fn setup_client<'a>(
@@ -51,12 +52,12 @@ pub(super) async fn setup_client<'a>(
         return None;
     }
     let connection = mountain_mqtt::embedded_io_async::ConnectionEmbedded::new(socket);
-    Some(mountain_mqtt::client::ClientNoQueue::new(
+    Some(ClientNoQueue::new(
         connection,
         mqtt_buffer,
         MyDelay,
         CLIENT_TIMEOUT_MS,
-        message_handler,
+        InboundEventHandler,
     ))
 }
 
@@ -70,7 +71,7 @@ pub(super) async fn setup_subscriptions<'a>(client: &mut ClientType<'a>) {
         let result = client
             .subscribe(
                 *topic,
-                mountain_mqtt::data::quality_of_service::QualityOfService::QoS0,
+                mountain_mqtt::data::quality_of_service::QualityOfService::Qos0,
             )
             .await;
         if let Err(e) = result {

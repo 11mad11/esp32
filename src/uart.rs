@@ -3,8 +3,8 @@ use embassy_futures::select::select;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Timer;
 use embedded_io_async::Write;
-use esp_hal::{gpio::Output, uart::Uart, Async};
 use esp_alloc::EspHeap;
+use esp_hal::{gpio::Output, uart::Uart, Async};
 
 use crate::{iot_topic, led, mqtt};
 
@@ -25,12 +25,7 @@ pub async fn uart_send(buf: &[u8]) {
     }
     let mut heap_buf = crate::vec_in_myheap!(0u8; len);
     heap_buf.copy_from_slice(&buf[..len]);
-    WRITE
-        .send(Packet {
-            buf: heap_buf,
-            len,
-        })
-        .await;
+    WRITE.send(Packet { buf: heap_buf, len }).await;
 }
 
 #[embassy_executor::task]

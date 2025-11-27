@@ -79,11 +79,12 @@ fn main() {
 
     let org = std::env::var("ORG").expect("ORG environment variable must be set");
     println!("cargo:rustc-env=ORG={}", org);
-    
+
     {
         let mac = std::env::var("MAC").ok().unwrap_or_else(|| {
             let mac = generate_random_mac();
-            writeln!(device_env_file, "\nMAC={}", mac).expect("Failed to write MAC to device env file");
+            writeln!(device_env_file, "\nMAC={}", mac)
+                .expect("Failed to write MAC to device env file");
             mac
         });
         println!("cargo:rustc-env=MAC={}", mac);

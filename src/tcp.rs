@@ -28,12 +28,7 @@ pub async fn tcp_send(buf: &[u8]) {
     }
     let mut heap_buf = crate::vec_in_myheap!(0u8; len);
     heap_buf.copy_from_slice(&buf[..len]);
-    WRITE
-        .send(Packet {
-            buf: heap_buf,
-            len,
-        })
-        .await;
+    WRITE.send(Packet { buf: heap_buf, len }).await;
 }
 
 #[embassy_executor::task]

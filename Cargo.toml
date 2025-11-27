@@ -82,7 +82,7 @@ embassy-embedded-hal = "0.3.0"
 embedded-hal-async = "1.0.0"
 embedded-hal = "1.0.0"
 embassy-futures = "0.1.1"
-mountain-mqtt = { git = "https://github.com/11mad11/mountain-mqtt", branch = "patch-will-from-release", default-features = false, features = [
+mountain-mqtt = { version="0.2.0", default-features = false, features = [
   "embedded-hal-async",
   "embedded-io-async",
 ] }

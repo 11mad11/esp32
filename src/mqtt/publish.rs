@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use defmt::info;
 use heapless::String;
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
@@ -16,6 +17,7 @@ static WRITE: Channel<CriticalSectionRawMutex, PublishPacket, 8> = Channel::new(
 
 /// Enqueue a packet for MQTT publishing. Panics if topic or payload exceed limits.
 pub async fn mqtt_send(buf: &[u8], topic: &str) {
+    info!("MQTT publish channel free capacity: {}", WRITE.free_capacity());
     let topic = String::try_from(topic).expect("Topic too big");
     let len = buf.len();
     assert!(len < MQTT_PACKET_LEN, "Packet too big");
