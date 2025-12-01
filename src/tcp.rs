@@ -140,8 +140,8 @@ async fn serial_to_mqtt_loop<'a>(socket: &mut TcpSocket<'a>) {
         match select(read_future, WRITE.receive()).await {
             select::Either::First(Err(_)) => break,
             select::Either::First(Ok(Some(SerialFrameEvent::Ready))) => {
-                let dispatch = match prepare_dispatch(assembler.frame_slice_mut()) {
-                    Ok(dispatch) => dispatch,
+                let (topic, payload) = match prepare_dispatch(assembler.frame_slice_mut()) {
+                    Ok(result) => result,
                     Err(err) => {
                         defmt::warn!("serial-to-mqtt frame dropped: {:?}", err);
                         assembler.reset();
@@ -149,9 +149,8 @@ async fn serial_to_mqtt_loop<'a>(socket: &mut TcpSocket<'a>) {
                     }
                 };
 
+                mqtt_send(payload, topic.as_str()).await;
                 assembler.reset();
-
-                mqtt_send(dispatch.payload.as_slice(), dispatch.topic.as_str()).await;
             }
             select::Either::First(Ok(Some(SerialFrameEvent::Overflow))) => {
                 defmt::warn!(
@@ -168,12 +167,7 @@ async fn serial_to_mqtt_loop<'a>(socket: &mut TcpSocket<'a>) {
     }
 }
 
-struct SerialDispatch {
-    topic: TopicString,
-    payload: HeapVec,
-}
-
-fn prepare_dispatch(buf: &mut [u8]) -> Result<SerialDispatch, SerialFrameError> {
+fn prepare_dispatch<'a>(buf: &'a mut [u8]) -> Result<(TopicString, &'a [u8]), SerialFrameError> {
     if buf.is_empty() {
         return Err(SerialFrameError::EmptyFrame);
     }
@@ -201,12 +195,7 @@ fn prepare_dispatch(buf: &mut [u8]) -> Result<SerialDispatch, SerialFrameError> 
         .push_str(parsed.channel)
         .map_err(|_| SerialFrameError::TopicTooLong)?;
 
-    let mut payload = crate::vec_in_myheap!(0u8; parsed.payload.len());
-    if !parsed.payload.is_empty() {
-        payload.copy_from_slice(parsed.payload);
-    }
-
-    Ok(SerialDispatch { topic, payload })
+    Ok((topic, parsed.payload))
 }
 
 #[derive(Clone, Copy, Debug, Format)]
