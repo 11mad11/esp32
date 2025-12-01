@@ -9,13 +9,12 @@ use embassy_time::{Duration, Timer};
 use heapless::String as HeapString;
 
 use crate::{
-    iot_topic, led, MyHeapVec,
+    MyHeapVec, iot_topic, led,
     mqtt::{MQTT_PACKET_LEN, mqtt_send},
 };
 
 pub static TCP_PACKET_LEN: usize = 64;
-const SERIAL_TO_MQTT_PROTOCOL_ENABLED: bool =
-    option_env!("SERIAL_TO_MQTT").is_some() || option_env!("serial-to-mqtt").is_some();
+const SERIAL_TO_MQTT_PROTOCOL_ENABLED: bool = option_env!("SERIAL_TO_MQTT").is_some();
 const SERIAL_TO_MQTT_MAX_FRAME: usize = 65_535;
 const SERIAL_TO_MQTT_MAX_BODY: usize = SERIAL_TO_MQTT_MAX_FRAME - 2;
 
