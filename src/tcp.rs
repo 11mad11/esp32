@@ -3,7 +3,7 @@ use core::{convert::TryInto, str};
 use alloc::{format, vec::Vec};
 use defmt::Format;
 use embassy_futures::select::{self, select};
-use embassy_net::{tcp::TcpSocket, Stack};
+use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use esp_alloc::EspHeap;
@@ -11,7 +11,7 @@ use heapless::String as HeapString;
 
 use crate::{
     iot_topic, led,
-    mqtt::{mqtt_send, MQTT_PACKET_LEN},
+    mqtt::{MQTT_PACKET_LEN, mqtt_send},
 };
 
 pub static TCP_PACKET_LEN: usize = 64;
@@ -131,7 +131,8 @@ async fn legacy_loop<'a>(socket: &mut TcpSocket<'a>) {
 }
 
 async fn serial_to_mqtt_loop<'a>(socket: &mut TcpSocket<'a>) {
-    let mut assembler = SerialFrameAssembler::new(crate::vec_in_myheap!(0u8; SERIAL_TO_MQTT_MAX_BODY));
+    let mut assembler =
+        SerialFrameAssembler::new(crate::vec_in_myheap!(0u8; SERIAL_TO_MQTT_MAX_BODY));
 
     loop {
         let read_future = socket.read_with(|buf| assembler.feed(buf));
@@ -245,6 +246,9 @@ impl SerialFrameAssembler {
             }
 
             if byte == 0 {
+                if self.len == 0 {
+                    continue;
+                }
                 return (idx, Some(SerialFrameEvent::Ready));
             }
 
