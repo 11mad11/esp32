@@ -1,16 +1,15 @@
 use core::{convert::TryInto, str};
 
-use alloc::{format, vec::Vec};
+use alloc::format;
 use defmt::Format;
 use embassy_futures::select::{self, select};
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
-use esp_alloc::EspHeap;
 use heapless::String as HeapString;
 
 use crate::{
-    iot_topic, led,
+    iot_topic, led, MyHeapVec,
     mqtt::{MQTT_PACKET_LEN, mqtt_send},
 };
 
@@ -20,7 +19,7 @@ const SERIAL_TO_MQTT_PROTOCOL_ENABLED: bool =
 const SERIAL_TO_MQTT_MAX_FRAME: usize = 65_535;
 const SERIAL_TO_MQTT_MAX_BODY: usize = SERIAL_TO_MQTT_MAX_FRAME - 2;
 
-type HeapVec = Vec<u8, &'static EspHeap>;
+type HeapVec = MyHeapVec<u8>;
 type TopicString = HeapString<64>;
 
 struct Packet {
@@ -177,7 +176,7 @@ fn prepare_dispatch<'a>(buf: &'a mut [u8]) -> Result<(TopicString, &'a [u8]), Se
         return Err(SerialFrameError::EmptyFrame);
     }
 
-    let parsed = parse_serial_frame(&buf[..decoded_len])?;
+    let parsed = parse_serial_frame(&mut buf[..decoded_len])?;
 
     defmt::debug!(
         "serial-to-mqtt msg={} chan={} ctype={} len={}",
@@ -265,6 +264,7 @@ impl SerialFrameAssembler {
 
 #[derive(Debug)]
 struct SerialParsedFrame<'a> {
+    #[allow(dead_code)]
     version: u8,
     msg_id: u32,
     channel: &'a str,
