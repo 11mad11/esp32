@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "esp32"
 version = "0.1.0"
 
@@ -8,35 +8,33 @@ name = "esp32"
 path = "./src/main.rs"
 
 [dependencies]
-defmt = "0.3.10"
-embassy-net = { version = "0.6.0", features = [
+defmt = "1.0.1"
+embassy-net = { version = "0.7.1", features = [
+  "defmt",
   "dhcpv4",
   "medium-ethernet",
   "tcp",
   "udp",
   "dns",
-  "proto-ipv4",
-  "medium-ip",
-  "raw",
 ] }
-embedded-io = "0.6.1"
-embedded-io-async = "0.6.1"
+embedded-io = { version = "0.7.1", features = ["defmt"] }
+embedded-io-async = { version = "0.7.0", features = ["defmt"] }
 embassy-sync = "0.6.2"
-esp-alloc = { version = "0.7.0", features = ["nightly"] }
-esp-backtrace = { version = "0.15.1", features = [
+esp-alloc = { version = "0.9.0", features = ["defmt"] }
+esp-backtrace = { version = "0.18.1", features = [
   "defmt",
   "esp32",
-  "exception-handler",
   "panic-handler",
 ] }
-esp-hal = { version = "1.0.0-beta.0", features = [
+esp-hal = { version = "1.0.0", features = [
   "defmt",
   "esp32",
   "unstable",
   "psram"
 ] }
-esp-println = { version = "0.13.0", features = ["defmt-espflash", "esp32"] }
+esp-println = { version = "0.16.1", features = ["defmt-espflash", "esp32"] }
 smoltcp = { version = "0.12.0", default-features = false, features = [
+  "defmt",
   "medium-ethernet",
   "multicast",
   "proto-dhcpv4",
@@ -55,21 +53,28 @@ bleps = { git = "https://github.com/bjoernQ/bleps", package = "bleps", rev = "a5
   "macros",
 ] }
 critical-section = "1.2.0"
-embassy-executor = { version = "0.7.0", features = ["defmt", "nightly"] }
-embassy-time = { version = "0.4.0", features = ["generic-queue-8"] }
-esp-hal-embassy = { version = "0.7.0", features = ["esp32"] }
-esp-wifi = { version = "0.13.0", features = [
+embassy-executor = { version = "0.9.1", features = ["defmt"] }
+embassy-time = { version = "0.5.0", features = ["defmt"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["defmt", "esp32"] }
+esp-radio = { version = "0.17.0", features = [
   "ble",
-  "builtin-scheduler",
   "coex",
   "defmt",
   "esp-alloc",
   "esp32",
+  "smoltcp",
+  "unstable",
   "wifi",
-  "serde"
+] }
+esp-rtos = { version = "0.2.0", features = [
+  "defmt",
+  "embassy",
+  "esp-alloc",
+  "esp-radio",
+  "esp32",
 ] }
 heapless = { version = "0.8.0", default-features = false }
-static_cell = { version = "2.1.0", features = ["nightly"] }
+static_cell = "2.1.1"
 enumset = "1.1.5"
 reqwless = { version = "0.12.0", default-features = false, features = [
   "embedded-tls",
@@ -77,11 +82,13 @@ reqwless = { version = "0.12.0", default-features = false, features = [
 picoserve = { version = "0.15.0", features = ["embassy"] }
 esp-storage = { version = "0.5.0", features = ["esp32", "low-level", "nor-flash"] }
 embedded-storage = "0.3.1"
-embassy-net-wiznet = "0.2.0"
+embassy-net-wiznet = "0.2.1"
 embassy-embedded-hal = "0.3.0"
 embedded-hal-async = "1.0.0"
 embedded-hal = "1.0.0"
 embassy-futures = "0.1.1"
+bt-hci = "0.6.0"
+trouble-host = { version = "0.5.0", features = ["gatt"] }
 mountain-mqtt = { version="0.2.0", default-features = false, features = [
   "embedded-hal-async",
   "embedded-io-async",
@@ -89,9 +96,7 @@ mountain-mqtt = { version="0.2.0", default-features = false, features = [
 lite-json = { version = "0.2.0", default-features = false }
 serde-json-core = "0.6.0"
 serde = { version = "1.0.219", default-features = false }
-advmac = { version = "1.0.3", default-features = false }
 anyhow = { version = "1.0.97", default-features = false }
-esp-hal-ota = { version = "0.4.0", features = ["esp32"] }
 edge-dhcp = "0.6.0"
 ekv = "1.0.0"
 postcard = "1.1.3"

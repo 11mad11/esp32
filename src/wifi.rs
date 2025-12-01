@@ -1,32 +1,28 @@
 use crate::mk_static;
+use alloc::string::ToString;
 use defmt::{error, println, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_hal::{
-    peripherals::{RADIO_CLK, WIFI},
-    rng::Rng,
-    timer::timg::Timer,
+    peripherals::WIFI,
+    rng::Rng
 };
-use esp_wifi::{
-    wifi::{ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent},
-    EspWifiController,
+use esp_radio::{
+    Controller, wifi::{ClientConfig, Config, ModeConfig, WifiController, WifiDevice, WifiEvent}
 };
-use heapless::String;
 
 pub async fn wifi_stack(
-    wifi: WIFI,
-    mut rng: Rng,
-    timer: Timer,
-    radio_clk: RADIO_CLK,
+    wifi: WIFI<'static>,
     spawner: Spawner,
 ) -> Stack<'static> {
+    let rng = Rng::new();
     let inited = &*mk_static!(
-        EspWifiController<'static>,
-        esp_wifi::init(timer, rng.clone(), radio_clk).unwrap()
+        Controller<'static>,
+        esp_radio::init().unwrap()
     );
 
-    let (mut wifi_controller, wifi_interface) = esp_wifi::wifi::new(&inited, wifi).unwrap();
+    let (mut wifi_controller, wifi_interface) = esp_radio::wifi::new(&inited, wifi, Config::default()).unwrap();
 
     // Init network stacks
     let (sta_stack, sta_runner) = embassy_net::new(
@@ -36,18 +32,16 @@ pub async fn wifi_stack(
         (rng.random() as u64) << 32 | rng.random() as u64,
     );
 
-    let client_config = Configuration::Client({
-        ClientConfiguration {
-            ssid: String::try_from(option_env!("SSID").unwrap_or("")).unwrap(),
-            password: String::try_from(option_env!("WPWD").unwrap_or("")).unwrap(),
-            ..Default::default()
-        }
+    let client_config = ModeConfig::Client({
+        ClientConfig::default()
+        .with_ssid(option_env!("SSID").unwrap_or("").to_string())
+        .with_password(option_env!("WPWD").unwrap_or("").to_string())
     });
     println!(
         "Using wifi configuration: {:?}",
         Debug2Format(&client_config)
     );
-    wifi_controller.set_configuration(&client_config).unwrap();
+    wifi_controller.set_config(&client_config).unwrap();
 
     spawner
         .spawn(run_stack(sta_runner))

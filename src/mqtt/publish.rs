@@ -1,15 +1,14 @@
-use alloc::vec::Vec;
 use defmt::info;
 use heapless::String;
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use esp_alloc::EspHeap;
+use crate::MyHeapVec;
 
 pub const MQTT_PACKET_LEN: usize = 1024;
 
 pub struct PublishPacket {
     pub topic: String<64>,
-    pub buf: Vec<u8, &'static EspHeap>,
+    pub buf: MyHeapVec<u8>,
     pub len: usize,
 }
 
