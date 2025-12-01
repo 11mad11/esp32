@@ -1,17 +1,15 @@
-use alloc::vec::Vec;
 use embassy_futures::select::select;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::Timer;
 use embedded_io_async::Write;
-use esp_alloc::EspHeap;
 use esp_hal::{gpio::Output, uart::Uart, Async};
 
-use crate::{iot_topic, led, mqtt};
+use crate::{iot_topic, led, mqtt, MyHeapVec};
 
 pub static UART_PACKET_LEN: usize = 128;
 
 struct Packet {
-    buf: Vec<u8, &'static EspHeap>,
+    buf: MyHeapVec<u8>,
     len: usize,
 }
 

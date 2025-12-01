@@ -12,12 +12,13 @@ use alloc::format;
 use defmt::{info, Debug2Format};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer, WithTimeout};
-use esp_alloc::{EspHeap, HeapRegion, MemoryCapability};
+use esp_alloc::{HeapRegion, MemoryCapability};
 use esp_hal::gpio::{Output, Pin};
 use esp_hal::spi;
 use esp_hal::time::{Duration as HalDuration, Rate};
 use esp_hal::timer::timg::{MwdtStage, TimerGroup};
-use esp_hal::{clock::CpuClock, rng::Rng};
+use esp_hal::clock::CpuClock;
+use esp_rtos::main;
 use ethernet::ethernet_task;
 use mqtt::{mqtt_send, mqtt_task};
 use output::output_task;
@@ -29,10 +30,13 @@ extern crate alloc;
 mod ethernet;
 mod led;
 mod mqtt;
+mod myheap;
 mod output;
 mod tcp;
 mod uart;
 mod wifi;
+
+pub use myheap::{MyHeapAllocator, MyHeapVec, MYHEAP};
 
 #[macro_export]
 macro_rules! mk_static {
@@ -62,23 +66,13 @@ const GIT_HASH: LazyCell<[u8; 7]> = LazyCell::new(|| {
 
 const WATCHDOG_TIMEOUT_SECS: u64 = 30;
 
-pub static MYHEAP: EspHeap = EspHeap::empty();
-#[macro_export]
-macro_rules! vec_in_myheap {
-    ($value:expr; $len:expr) => {{
-        let mut v = alloc::vec::Vec::with_capacity_in($len, &crate::MYHEAP);
-        v.resize($len, $value);
-        v
-    }};
-}
-
-#[esp_hal_embassy::main]
+#[main]
 async fn main(spawner: Spawner) {
     info!("initializing! Version: {:x}", *GIT_HASH);
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    esp_alloc::heap_allocator!(#[link_section = ".dram2_uninit"] size: 72 * 1024);
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 72 * 1024);
     let (start, size) = esp_hal::psram::psram_raw_parts(&peripherals.PSRAM);
     unsafe {
         MYHEAP.add_region(HeapRegion::new(
@@ -91,7 +85,7 @@ async fn main(spawner: Spawner) {
     info!("Heap initialized!");
 
     let timer0 = TimerGroup::new(peripherals.TIMG1);
-    esp_hal_embassy::init(timer0.timer0);
+    esp_rtos::start(timer0.timer0);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let mut watchdog = timg0.wdt;
@@ -101,17 +95,6 @@ async fn main(spawner: Spawner) {
     );
     watchdog.enable();
     watchdog.feed();
-    let mut wifi_timer = Some(timg0.timer0);
-
-    //entropy?
-    let mut rng = Rng::new(peripherals.RNG);
-    {
-        let count = (rng.random() % 1000) + 50;
-        for _ in 0..count {
-            core::hint::spin_loop();
-        }
-        info!("Random delay complete: {} cycle count", count);
-    }
 
     info!("Embassy initialized!");
 
@@ -175,9 +158,8 @@ async fn main(spawner: Spawner) {
 
         ethernet_task(
             spi,
-            peripherals.GPIO5,
-            peripherals.GPIO21,
-            rng.clone(),
+            peripherals.GPIO5.degrade(),
+            peripherals.GPIO21.degrade(),
             spawner.clone(),
         )
     }
@@ -193,9 +175,6 @@ async fn main(spawner: Spawner) {
     if wifi {
         stack = wifi::wifi_stack(
             peripherals.WIFI,
-            rng.clone(),
-            wifi_timer.take().expect("wifi timer already taken"),
-            peripherals.RADIO_CLK,
             spawner.clone(),
         )
         .await;
