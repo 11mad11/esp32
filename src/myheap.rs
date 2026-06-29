@@ -5,6 +5,11 @@ use core::{
 
 use alloc::alloc::AllocError;
 use esp_alloc::EspHeap;
+use esp_alloc::{HeapRegion, MemoryCapability};
+
+/// Add this to main.rs to activate this module
+/// mod myheap;
+/// pub use myheap::{MyHeapAllocator, MyHeapVec, MYHEAP};
 
 pub static MYHEAP: EspHeap = EspHeap::empty();
 
@@ -33,6 +38,25 @@ macro_rules! vec_in_myheap {
         let mut v = alloc::vec::Vec::with_capacity_in($len, crate::MyHeapAllocator(&crate::MYHEAP));
         v.resize($len, $value);
         v
+    }};
+}
+
+#[macro_export]
+macro_rules! init_myheap_with_psram {
+    ($peripherals:expr) => {{
+        let (start, size) = esp_hal::psram::psram_raw_parts(&$peripherals.PSRAM);
+        unsafe {
+            log::info!(
+                "PSRAM heap region: start=0x{:x}, size={}",
+                start as usize,
+                size
+            );
+            crate::MYHEAP.add_region(HeapRegion::new(
+                start,
+                size,
+                MemoryCapability::External.into(),
+            ));
+        }
     }};
 }
 

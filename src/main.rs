@@ -9,15 +9,14 @@
 use core::cell::LazyCell;
 
 use alloc::format;
-use defmt::{info, Debug2Format};
+use defmt::{Debug2Format, info};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer, WithTimeout};
-use esp_alloc::{HeapRegion, MemoryCapability};
+use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Output, Pin};
 use esp_hal::spi;
 use esp_hal::time::{Duration as HalDuration, Rate};
 use esp_hal::timer::timg::{MwdtStage, TimerGroup};
-use esp_hal::clock::CpuClock;
 use esp_rtos::main;
 use ethernet::ethernet_task;
 use mqtt::{mqtt_send, mqtt_task};
@@ -30,13 +29,11 @@ extern crate alloc;
 mod ethernet;
 mod led;
 mod mqtt;
-mod myheap;
 mod output;
+mod serial_frame;
 mod tcp;
 mod uart;
 mod wifi;
-
-pub use myheap::{MyHeapAllocator, MyHeapVec, MYHEAP};
 
 #[macro_export]
 macro_rules! mk_static {
@@ -68,19 +65,12 @@ const WATCHDOG_TIMEOUT_SECS: u64 = 30;
 
 #[main]
 async fn main(spawner: Spawner) {
+    esp_bootloader_esp_idf::esp_app_desc!();
     info!("initializing! Version: {:x}", *GIT_HASH);
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 72 * 1024);
-    let (start, size) = esp_hal::psram::psram_raw_parts(&peripherals.PSRAM);
-    unsafe {
-        MYHEAP.add_region(HeapRegion::new(
-            start,
-            size,
-            MemoryCapability::External.into(),
-        ));
-    }
 
     info!("Heap initialized!");
 
@@ -173,11 +163,8 @@ async fn main(spawner: Spawner) {
         .await
         .is_err();
     if wifi {
-        stack = wifi::wifi_stack(
-            peripherals.WIFI,
-            spawner.clone(),
-        )
-        .await;
+        defmt::info!("Switching to wifi...");
+        stack = wifi::wifi_stack(peripherals.WIFI, spawner.clone()).await;
     }
     watchdog.feed();
 
@@ -213,12 +200,9 @@ async fn main(spawner: Spawner) {
     //spawner.spawn(ota_task()).unwrap();
 
     loop {
-
         // Print heap stats
-        info!(
-            "Heap usage: {:?}",
-            Debug2Format(&MYHEAP.stats())
-        );
+        //info!("Heap usage: {:?}", Debug2Format(&MYHEAP.stats()));
+        info!("Global alloc heap usage: {:?}", Debug2Format(&esp_alloc::HEAP.stats()));
 
         Timer::after_secs(10).await;
         watchdog.feed();

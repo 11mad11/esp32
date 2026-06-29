@@ -1,28 +1,21 @@
 use crate::mk_static;
 use alloc::string::ToString;
-use defmt::{error, println, Debug2Format};
+use defmt::{Debug2Format, error, println};
 use embassy_executor::Spawner;
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use esp_hal::{
-    peripherals::WIFI,
-    rng::Rng
-};
+use esp_hal::{peripherals::WIFI, rng::Rng};
 use esp_radio::{
-    Controller, wifi::{ClientConfig, Config, ModeConfig, WifiController, WifiDevice, WifiEvent}
+    Controller,
+    wifi::{ClientConfig, Config, ModeConfig, WifiController, WifiDevice, WifiEvent},
 };
 
-pub async fn wifi_stack(
-    wifi: WIFI<'static>,
-    spawner: Spawner,
-) -> Stack<'static> {
+pub async fn wifi_stack(wifi: WIFI<'static>, spawner: Spawner) -> Stack<'static> {
     let rng = Rng::new();
-    let inited = &*mk_static!(
-        Controller<'static>,
-        esp_radio::init().unwrap()
-    );
+    let inited = &*mk_static!(Controller<'static>, esp_radio::init().unwrap());
 
-    let (mut wifi_controller, wifi_interface) = esp_radio::wifi::new(&inited, wifi, Config::default()).unwrap();
+    let (mut wifi_controller, wifi_interface) =
+        esp_radio::wifi::new(&inited, wifi, Config::default()).unwrap();
 
     // Init network stacks
     let (sta_stack, sta_runner) = embassy_net::new(
@@ -34,8 +27,8 @@ pub async fn wifi_stack(
 
     let client_config = ModeConfig::Client({
         ClientConfig::default()
-        .with_ssid(option_env!("SSID").unwrap_or("").to_string())
-        .with_password(option_env!("WPWD").unwrap_or("").to_string())
+            .with_ssid(option_env!("SSID").unwrap_or("").to_string())
+            .with_password(option_env!("WPWD").unwrap_or("").to_string())
     });
     println!(
         "Using wifi configuration: {:?}",

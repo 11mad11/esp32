@@ -1,5 +1,4 @@
-use core::str::FromStr;
-
+use crate::{iot_topic, led};
 use embassy_futures::select::select3;
 use embassy_net::Stack;
 use embassy_time::Timer;
@@ -9,23 +8,12 @@ use mountain_mqtt::{
     data::quality_of_service::QualityOfService,
     packets::connect::Will,
 };
-use serde::Serialize;
-
-use crate::{iot_topic, led};
 
 use super::{
-    connection::{alloc_buffers, setup_client, setup_subscriptions},
+    connection::{alloc_buffers, build_connection_packet, setup_client, setup_subscriptions},
     publish::next_publish as next_publish_packet,
 };
-
-const CONNECTION_PAYLOAD_SIZE: usize = 256;
 const PING_INTERVAL_SECS: u64 = 5;
-
-#[derive(Debug, Serialize)]
-struct ConnectionPacket {
-    msg: heapless::String<64>,
-    last_will: bool,
-}
 
 #[embassy_executor::task]
 pub async fn mqtt_task(stack: Stack<'static>) -> ! {
@@ -44,17 +32,10 @@ pub async fn mqtt_task(stack: Stack<'static>) -> ! {
             None => continue 'main,
         };
 
-        let mut will_payload = crate::vec_in_myheap!(0u8; CONNECTION_PAYLOAD_SIZE);
-        let will_payload_len = serde_json_core::to_slice(
-            &ConnectionPacket {
-                last_will: true,
-                msg: heapless::String::from_str("me dead").unwrap(),
-            },
-            &mut will_payload[..],
-        )
-        .unwrap();
+        let (will_payload, will_payload_len) = build_connection_packet(true, "me dead");
 
-        let connection_settings = ConnectionSettings::unauthenticated(env!("ID"));
+        let connection_settings =
+            ConnectionSettings::authenticated(env!("ID"), env!("TOKEN"), b".");
         let result_connection = client
             .connect_with_will::<0>(
                 &connection_settings,
@@ -74,15 +55,7 @@ pub async fn mqtt_task(stack: Stack<'static>) -> ! {
             continue 'main;
         }
 
-        let mut payload = crate::vec_in_myheap!(0u8; CONNECTION_PAYLOAD_SIZE);
-        let payload_len = serde_json_core::to_slice(
-            &ConnectionPacket {
-                last_will: false,
-                msg: heapless::String::from_str("me alive").unwrap(),
-            },
-            &mut payload[..],
-        )
-        .unwrap();
+        let (payload, payload_len) = build_connection_packet(false, "me alive");
         client
             .publish(
                 concat!(iot_topic!(), "/connection"),

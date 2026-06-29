@@ -1291,8 +1291,8 @@ dependencies = [
  "embassy-time 0.5.0",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
- "embedded-io 0.7.1",
- "embedded-io-async 0.7.0",
+ "embedded-io 0.6.1",
+ "embedded-io-async 0.6.1",
  "embedded-storage",
  "enumset",
  "esp-alloc",
@@ -1831,8 +1831,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "mountain-mqtt"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98868f36f3d7b52b8e8014e6444363dfe74771ebede21bb61a58587adfb61de5"
+source = "git+https://github.com/11mad11/mountain-mqtt?branch=patch-4#03bff142c27e1ada08b2cc10f8c118da56cab118"
 dependencies = [
  "embedded-hal-async",
  "embedded-io 0.6.1",
