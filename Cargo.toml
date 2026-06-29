@@ -17,8 +17,8 @@ embassy-net = { version = "0.7.1", features = [
   "udp",
   "dns",
 ] }
-embedded-io = { version = "0.7.1", features = ["defmt"] }
-embedded-io-async = { version = "0.7.0", features = ["defmt"] }
+embedded-io = { version = "0.6.1", features = ["defmt-03"] }
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 embassy-sync = "0.6.2"
 esp-alloc = { version = "0.9.0", features = ["defmt"] }
 esp-backtrace = { version = "0.18.1", features = [
@@ -29,8 +29,7 @@ esp-backtrace = { version = "0.18.1", features = [
 esp-hal = { version = "1.0.0", features = [
   "defmt",
   "esp32",
-  "unstable",
-  "psram"
+  "unstable"
 ] }
 esp-println = { version = "0.16.1", features = ["defmt-espflash", "esp32"] }
 smoltcp = { version = "0.12.0", default-features = false, features = [
@@ -89,7 +88,7 @@ embedded-hal = "1.0.0"
 embassy-futures = "0.1.1"
 bt-hci = "0.6.0"
 trouble-host = { version = "0.5.0", features = ["gatt"] }
-mountain-mqtt = { version="0.2.0", default-features = false, features = [
+mountain-mqtt = { git = "https://github.com/11mad11/mountain-mqtt", branch = "patch-4", default-features = false, features = [
   "embedded-hal-async",
   "embedded-io-async",
 ] }

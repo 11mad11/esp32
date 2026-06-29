@@ -1,14 +1,15 @@
+use alloc::vec::Vec;
+use alloc::vec;
 use defmt::info;
 use heapless::String;
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use crate::MyHeapVec;
 
 pub const MQTT_PACKET_LEN: usize = 1024;
 
 pub struct PublishPacket {
     pub topic: String<64>,
-    pub buf: MyHeapVec<u8>,
+    pub buf: Vec<u8>,
     pub len: usize,
 }
 
@@ -16,11 +17,14 @@ static WRITE: Channel<CriticalSectionRawMutex, PublishPacket, 8> = Channel::new(
 
 /// Enqueue a packet for MQTT publishing. Panics if topic or payload exceed limits.
 pub async fn mqtt_send(buf: &[u8], topic: &str) {
-    info!("MQTT publish channel free capacity: {}", WRITE.free_capacity());
+    info!(
+        "MQTT publish channel free capacity: {}",
+        WRITE.free_capacity()
+    );
     let topic = String::try_from(topic).expect("Topic too big");
     let len = buf.len();
     assert!(len < MQTT_PACKET_LEN, "Packet too big");
-    let mut heap_buf = crate::vec_in_myheap!(0u8; len);
+    let mut heap_buf = vec![0u8; len];
     heap_buf.copy_from_slice(&buf[..len]);
     WRITE
         .send(PublishPacket {

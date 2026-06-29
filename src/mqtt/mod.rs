@@ -1,4 +1,4 @@
-pub use publish::{mqtt_send, MQTT_PACKET_LEN};
+pub use publish::{MQTT_PACKET_LEN, mqtt_send};
 pub use task::mqtt_task;
 
 mod connection;

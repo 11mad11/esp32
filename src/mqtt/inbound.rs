@@ -1,10 +1,6 @@
 use mountain_mqtt::client::{ClientReceivedEvent, EventHandler, EventHandlerError};
 
-use crate::{
-    iot_topic,
-    output,
-    tcp,
-};
+use crate::{iot_topic, output, tcp};
 
 use super::publish::mqtt_send;
 

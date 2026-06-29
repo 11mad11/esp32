@@ -80,6 +80,21 @@ fn main() {
     let org = std::env::var("ORG").expect("ORG environment variable must be set");
     println!("cargo:rustc-env=ORG={}", org);
 
+    let serial_to_mqtt = std::env::var("SERIAL_TO_MQTT").ok();
+    if let Some(serial_to_mqtt) = serial_to_mqtt {
+        println!("cargo:rustc-env=SERIAL_TO_MQTT={}", serial_to_mqtt);
+    }
+
+    let ssid = std::env::var("SSID").unwrap_or_default();
+    if !ssid.is_empty() {
+        println!("cargo:rustc-env=SSID={}", ssid);
+    }
+
+    let wpwd = std::env::var("WPWD").unwrap_or_default();
+    if !wpwd.is_empty() {
+        println!("cargo:rustc-env=WPWD={}", wpwd);
+    }
+
     {
         let mac = std::env::var("MAC").ok().unwrap_or_else(|| {
             let mac = generate_random_mac();
@@ -108,7 +123,9 @@ fn linker_be_nice() {
             "undefined-symbol" => match what.as_str() {
                 "_defmt_timestamp" => {
                     eprintln!();
-                    eprintln!("💡 `defmt` not found - make sure `defmt.x` is added as a linker script and you have included `use defmt_rtt as _;`");
+                    eprintln!(
+                        "💡 `defmt` not found - make sure `defmt.x` is added as a linker script and you have included `use defmt_rtt as _;`"
+                    );
                     eprintln!();
                 }
                 "_stack_start" => {

@@ -1,25 +1,19 @@
-use core::{convert::TryInto, str};
-
-use alloc::format;
-use defmt::Format;
+use alloc::{format, vec, vec::Vec};
 use embassy_futures::select::{self, select};
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
-use heapless::String as HeapString;
 
 use crate::{
-    MyHeapVec, iot_topic, led,
+    iot_topic, led,
     mqtt::{MQTT_PACKET_LEN, mqtt_send},
+    serial_frame::{self, SERIAL_TO_MQTT_MAX_FRAME},
 };
 
 pub static TCP_PACKET_LEN: usize = 64;
 const SERIAL_TO_MQTT_PROTOCOL_ENABLED: bool = option_env!("SERIAL_TO_MQTT").is_some();
-const SERIAL_TO_MQTT_MAX_FRAME: usize = 65_535;
-const SERIAL_TO_MQTT_MAX_BODY: usize = SERIAL_TO_MQTT_MAX_FRAME - 2;
 
-type HeapVec = MyHeapVec<u8>;
-type TopicString = HeapString<64>;
+type HeapVec = Vec<u8>;
 
 struct Packet {
     buf: HeapVec,
@@ -33,15 +27,15 @@ pub async fn tcp_send(buf: &[u8]) {
     if len >= TCP_PACKET_LEN {
         panic!("Packet too big");
     }
-    let mut heap_buf = crate::vec_in_myheap!(0u8; len);
+    let mut heap_buf = vec![0u8; len];
     heap_buf.copy_from_slice(&buf[..len]);
     WRITE.send(Packet { buf: heap_buf, len }).await;
 }
 
 #[embassy_executor::task]
 pub async fn tcp_task(stack: Stack<'static>) {
-    let mut rx_buffer = crate::vec_in_myheap!(0u8; 1024);
-    let mut tx_buffer = crate::vec_in_myheap!(0u8; 1024);
+    let mut rx_buffer = vec![0u8; 1024];
+    let mut tx_buffer = vec![0u8; 1024];
 
     loop {
         loop {
@@ -85,7 +79,7 @@ async fn loop_s<'a>(socket: &mut TcpSocket<'a>) {
 }
 
 async fn legacy_loop<'a>(socket: &mut TcpSocket<'a>) {
-    let mut accum = crate::vec_in_myheap!(0u8; MQTT_PACKET_LEN);
+    let mut accum = vec![0u8; MQTT_PACKET_LEN];
     let mut index: usize = 0;
 
     loop {
@@ -115,7 +109,15 @@ async fn legacy_loop<'a>(socket: &mut TcpSocket<'a>) {
         });
 
         match select(read_future, WRITE.receive()).await {
-            select::Either::First(Err(_)) => break, //connection was reset
+            select::Either::First(Err(e)) => {
+                defmt::error!("Connection reset by peer: {:?}", defmt::Debug2Format(&e));
+                mqtt_send(
+                    b"Connection reset by peer",
+                    concat!(iot_topic!(), "/logs"),
+                )
+                .await;
+                break;
+            }
             select::Either::First(Ok(Some(_))) => {
                 mqtt_send(&accum[..index], concat!(iot_topic!(), "/data")).await;
                 index = 0;
@@ -128,34 +130,42 @@ async fn legacy_loop<'a>(socket: &mut TcpSocket<'a>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Serial-to-MQTT protocol loop.
+//
+// Incoming data is hex-encoded ASCII (e.g. the bytes 0x00 0x01 0xFF are sent
+// as the ASCII string "0001FF").  There is no COBS framing; the frame length
+// is obtained directly from the 16-bit `declared_len` field in the protocol
+// header.
+// ---------------------------------------------------------------------------
+
 async fn serial_to_mqtt_loop<'a>(socket: &mut TcpSocket<'a>) {
-    let mut assembler =
-        SerialFrameAssembler::new(crate::vec_in_myheap!(0u8; SERIAL_TO_MQTT_MAX_BODY));
+    let mut decoder = HexFrameDecoder::new(vec![0u8; SERIAL_TO_MQTT_MAX_FRAME]);
 
     loop {
-        let read_future = socket.read_with(|buf| assembler.feed(buf));
+        let read_future = socket.read_with(|buf| decoder.feed(buf));
 
         match select(read_future, WRITE.receive()).await {
-            select::Either::First(Err(_)) => break,
-            select::Either::First(Ok(Some(SerialFrameEvent::Ready))) => {
-                let (topic, payload) = match prepare_dispatch(assembler.frame_slice_mut()) {
-                    Ok(result) => result,
-                    Err(err) => {
-                        defmt::warn!("serial-to-mqtt frame dropped: {:?}", err);
-                        assembler.reset();
-                        continue;
-                    }
-                };
-
-                mqtt_send(payload, topic.as_str()).await;
-                assembler.reset();
+            select::Either::First(Err(e)) => {
+                defmt::error!("Connection reset by peer: {:?}", defmt::Debug2Format(&e));
+                mqtt_send(
+                    b"Connection reset by peer",
+                    concat!(iot_topic!(), "/logs"),
+                )
+                .await;
+                break;
             }
-            select::Either::First(Ok(Some(SerialFrameEvent::Overflow))) => {
-                defmt::warn!(
-                    "serial-to-mqtt frame overflow (>{} bytes), waiting for next frame",
-                    SERIAL_TO_MQTT_MAX_BODY
-                );
-                assembler.reset();
+            select::Either::First(Ok(Some(()))) => {
+                let result = serial_frame::prepare_dispatch(decoder.frame_slice_mut());
+                match result {
+                    Ok((topic, payload)) => {
+                        mqtt_send(payload, topic.as_str()).await;
+                    }
+                    Err(e) => {
+                        defmt::warn!("serial-to-mqtt frame dropped: {:?}", e);
+                    }
+                }
+                decoder.reset();
             }
             select::Either::First(Ok(None)) => (),
             select::Either::Second(pk) => {
@@ -165,274 +175,110 @@ async fn serial_to_mqtt_loop<'a>(socket: &mut TcpSocket<'a>) {
     }
 }
 
-fn prepare_dispatch<'a>(buf: &'a mut [u8]) -> Result<(TopicString, &'a [u8]), SerialFrameError> {
-    if buf.is_empty() {
-        return Err(SerialFrameError::EmptyFrame);
-    }
+// ---------------------------------------------------------------------------
+// Hex-stream frame decoder
+//
+// Decodes hex-encoded ASCII bytes on the fly into a binary buffer.  Once the
+// protocol header has been decoded (3 bytes) the total frame size is known
+// from `declared_len`, and the decoder signals completion as soon as exactly
+// that many bytes have been received.
+// ---------------------------------------------------------------------------
 
-    let decoded_len = cobs_decode_in_place(buf)?;
-    if decoded_len == 0 {
-        return Err(SerialFrameError::EmptyFrame);
-    }
-
-    let parsed = parse_serial_frame(&mut buf[..decoded_len])?;
-
-    defmt::debug!(
-        "serial-to-mqtt msg={} chan={} ctype={} len={}",
-        parsed.msg_id,
-        parsed.channel,
-        parsed.ctype,
-        parsed.payload.len()
-    );
-
-    let mut topic = TopicString::new();
-    topic
-        .push_str(concat!(iot_topic!(), "/data/"))
-        .map_err(|_| SerialFrameError::TopicTooLong)?;
-    topic
-        .push_str(parsed.channel)
-        .map_err(|_| SerialFrameError::TopicTooLong)?;
-
-    Ok((topic, parsed.payload))
+struct HexFrameDecoder {
+    /// Binary-decoded receive buffer.
+    bin_buf: Vec<u8>,
+    /// Number of valid binary bytes currently in `bin_buf`.
+    bin_len: usize,
+    /// Total expected frame size in bytes (known after the first 3 bytes).
+    expected_frame_len: Option<usize>,
+    /// First nibble of a partially decoded hex byte pair.
+    pending_nibble: Option<u8>,
 }
 
-#[derive(Clone, Copy, Debug, Format)]
-enum SerialFrameEvent {
-    Ready,
-    Overflow,
-}
-
-struct SerialFrameAssembler {
-    buf: HeapVec,
-    len: usize,
-    collecting: bool,
-}
-
-impl SerialFrameAssembler {
-    fn new(buf: HeapVec) -> Self {
+impl HexFrameDecoder {
+    fn new(bin_buf: Vec<u8>) -> Self {
         Self {
-            buf,
-            len: 0,
-            collecting: false,
+            bin_buf,
+            bin_len: 0,
+            expected_frame_len: None,
+            pending_nibble: None,
         }
     }
 
-    fn feed(&mut self, buf: &mut [u8]) -> (usize, Option<SerialFrameEvent>) {
+    /// Feed a chunk of raw TCP data (hex ASCII characters) into the decoder.
+    ///
+    /// Returns `(bytes_consumed, Some(()))` when a complete frame is ready,
+    /// or `(bytes_consumed, None)` while still accumulating data.
+    fn feed(&mut self, data: &mut [u8]) -> (usize, Option<()>) {
         let mut idx = 0;
 
-        while idx < buf.len() {
-            let byte = buf[idx];
+        while idx < data.len() {
+            let byte = data[idx];
             idx += 1;
 
-            if !self.collecting {
-                if byte == 0 {
-                    self.collecting = true;
-                    self.len = 0;
+            let nibble = match hex_nibble(byte) {
+                Some(n) => n,
+                None => continue, // skip whitespace / non-hex chars
+            };
+
+            if let Some(hi) = self.pending_nibble.take() {
+                // Complete a byte from the two nibbles.
+                if self.bin_len < self.bin_buf.len() {
+                    self.bin_buf[self.bin_len] = (hi << 4) | nibble;
+                    self.bin_len += 1;
                 }
-                continue;
-            }
 
-            if byte == 0 {
-                if self.len == 0 {
-                    continue;
+                // After 3 binary bytes we can read `declared_len` from the header.
+                if self.expected_frame_len.is_none() && self.bin_len >= 3 {
+                    let declared =
+                        u16::from_le_bytes([self.bin_buf[1], self.bin_buf[2]]) as usize;
+                    self.expected_frame_len = Some(declared + 1);
                 }
-                return (idx, Some(SerialFrameEvent::Ready));
-            }
 
-            if self.len >= self.buf.len() {
-                self.reset();
-                return (idx, Some(SerialFrameEvent::Overflow));
-            }
-
-            self.buf[self.len] = byte;
-            self.len += 1;
-        }
-
-        (buf.len(), None)
-    }
-
-    fn frame_slice_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..self.len]
-    }
-
-    fn reset(&mut self) {
-        self.len = 0;
-        self.collecting = false;
-    }
-}
-
-#[derive(Debug)]
-struct SerialParsedFrame<'a> {
-    #[allow(dead_code)]
-    version: u8,
-    msg_id: u32,
-    channel: &'a str,
-    ctype: &'a str,
-    payload: &'a [u8],
-}
-
-#[derive(Clone, Copy, Debug, Format)]
-enum SerialFrameError {
-    EmptyFrame,
-    CobsZeroByte,
-    CobsUnexpectedEof,
-    LengthMismatch { declared: usize, actual: usize },
-    UnsupportedVersion(u8),
-    ChannelTooLong,
-    CTypeTooLong,
-    InvalidChannelUtf8,
-    InvalidCTypeUtf8,
-    PayloadTooLarge { len: usize },
-    PayloadLengthMismatch,
-    TopicTooLong,
-    CrcMismatch { expected: u32, actual: u32 },
-}
-
-fn parse_serial_frame(buf: &mut [u8]) -> Result<SerialParsedFrame<'_>, SerialFrameError> {
-    if buf.len() < 1 + 2 + 4 + 1 + 1 + 2 + 4 {
-        return Err(SerialFrameError::LengthMismatch {
-            declared: 0,
-            actual: buf.len(),
-        });
-    }
-
-    let version = buf[0];
-    if version != 1 {
-        return Err(SerialFrameError::UnsupportedVersion(version));
-    }
-
-    let declared_len = u16::from_le_bytes([buf[1], buf[2]]) as usize;
-    if declared_len != buf.len() - 1 {
-        return Err(SerialFrameError::LengthMismatch {
-            declared: declared_len,
-            actual: buf.len() - 1,
-        });
-    }
-
-    let mut offset = 3;
-
-    let msg_id = u32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap());
-    offset += 4;
-
-    let chan_len = buf[offset] as usize;
-    offset += 1;
-    if offset + chan_len > buf.len() {
-        return Err(SerialFrameError::ChannelTooLong);
-    }
-    let channel = str::from_utf8(&buf[offset..offset + chan_len])
-        .map_err(|_| SerialFrameError::InvalidChannelUtf8)?;
-    offset += chan_len;
-
-    let ctype_len = buf[offset] as usize;
-    offset += 1;
-    if offset + ctype_len > buf.len() {
-        return Err(SerialFrameError::CTypeTooLong);
-    }
-    let ctype = str::from_utf8(&buf[offset..offset + ctype_len])
-        .map_err(|_| SerialFrameError::InvalidCTypeUtf8)?;
-    offset += ctype_len;
-
-    if offset + 2 > buf.len() {
-        return Err(SerialFrameError::PayloadLengthMismatch);
-    }
-    let payload_len = u16::from_le_bytes(buf[offset..offset + 2].try_into().unwrap()) as usize;
-    offset += 2;
-
-    if offset + payload_len + 4 > buf.len() {
-        return Err(SerialFrameError::PayloadLengthMismatch);
-    }
-    let payload = &buf[offset..offset + payload_len];
-    offset += payload_len;
-
-    if offset + 4 > buf.len() {
-        return Err(SerialFrameError::LengthMismatch {
-            declared: declared_len,
-            actual: buf.len() - 1,
-        });
-    }
-    let crc_expected = u32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap());
-    if offset + 4 != buf.len() {
-        return Err(SerialFrameError::LengthMismatch {
-            declared: declared_len,
-            actual: buf.len() - 1,
-        });
-    }
-
-    if payload_len > MQTT_PACKET_LEN {
-        return Err(SerialFrameError::PayloadTooLarge { len: payload_len });
-    }
-
-    let crc_actual = crc32_mpeg2(&buf[..offset]);
-    if crc_actual != crc_expected {
-        return Err(SerialFrameError::CrcMismatch {
-            expected: crc_expected,
-            actual: crc_actual,
-        });
-    }
-
-    Ok(SerialParsedFrame {
-        version,
-        msg_id,
-        channel,
-        ctype,
-        payload,
-    })
-}
-
-fn cobs_decode_in_place(buf: &mut [u8]) -> Result<usize, SerialFrameError> {
-    let mut read_index = 0;
-    let mut write_index = 0;
-
-    while read_index < buf.len() {
-        let code = buf[read_index];
-        if code == 0 {
-            return Err(SerialFrameError::CobsZeroByte);
-        }
-        read_index += 1;
-
-        let end = read_index + (code as usize - 1);
-        while read_index < end {
-            if read_index >= buf.len() {
-                return Err(SerialFrameError::CobsUnexpectedEof);
-            }
-            buf[write_index] = buf[read_index];
-            write_index += 1;
-            read_index += 1;
-        }
-
-        if code != 0xFF && read_index < buf.len() {
-            buf[write_index] = 0;
-            write_index += 1;
-        }
-    }
-
-    Ok(write_index)
-}
-
-fn crc32_mpeg2(data: &[u8]) -> u32 {
-    const POLY: u32 = 0x04C11DB7;
-    let mut crc: u32 = 0xFFFF_FFFF;
-
-    for &byte in data {
-        crc ^= (byte as u32) << 24;
-        for _ in 0..8 {
-            if (crc & 0x8000_0000) != 0 {
-                crc = (crc << 1) ^ POLY;
+                // Check for completion.
+                if let Some(expected) = self.expected_frame_len {
+                    if self.bin_len >= expected {
+                        return (idx, Some(()));
+                    }
+                }
             } else {
-                crc <<= 1;
+                self.pending_nibble = Some(nibble);
             }
         }
+
+        (idx, None)
     }
 
-    crc
-}
+    /// Return a mutable slice over the completed frame.
+    ///
+    /// Only valid after `feed` has returned `Some(())`.
+    fn frame_slice_mut(&mut self) -> &mut [u8] {
+        let len = self.expected_frame_len.unwrap_or(self.bin_len);
+        &mut self.bin_buf[..len]
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::crc32_mpeg2;
-
-    #[test]
-    fn crc32_mpeg2_matches_reference() {
-        assert_eq!(crc32_mpeg2(b"123456789"), 0x0376E6E7);
+    /// Consume the current frame and prepare the decoder for the next one.
+    ///
+    /// Any binary bytes decoded beyond the frame boundary are shifted to the
+    /// front of the buffer.
+    fn reset(&mut self) {
+        let frame_len = self.expected_frame_len.unwrap_or(self.bin_len);
+        if frame_len < self.bin_len {
+            self.bin_buf.copy_within(frame_len..self.bin_len, 0);
+        }
+        self.bin_len -= frame_len;
+        self.expected_frame_len = None;
+        // pending_nibble is always None after a successful frame decode.
     }
 }
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+
